@@ -143,3 +143,20 @@ export class BulkEmailDto {
   @IsNumber()
   batchSize?: number;
 }
+
+export class WelcomeEmailDto {
+  @ApiProperty({
+    description: 'Email address of the recipient',
+    example: 'user@example.com',
+  })
+  @IsEmail()
+  to: string;
+
+  @ApiPropertyOptional({
+    description: 'Name of the recipient',
+    example: 'John Doe',
+  })
+  @IsString()
+  @IsOptional()
+  name?: string;
+}

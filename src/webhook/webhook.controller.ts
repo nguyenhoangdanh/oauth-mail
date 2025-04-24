@@ -35,7 +35,7 @@ import { WebhookDeliveryLog } from './entities/webhook-delivery-log.entity';
 @ApiTags('webhooks')
 @ApiBearerAuth()
 @UseGuards(AdminGuard)
-@Controller('api/admin/webhooks')
+@Controller('admin/webhooks')
 export class WebhookController {
   constructor(
     private readonly webhookService: WebhookService,

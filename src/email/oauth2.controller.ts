@@ -1,13 +1,13 @@
 // src/email/oauth2.controller.ts
-import { Controller, Get, Res, Query, Req, UseGuards } from '@nestjs/common';
-import { Response, Request } from 'express';
+import { Controller, Get, Res, Query, UseGuards } from '@nestjs/common';
+import { Response } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { OAuth2Service } from './oauth2.service';
 import { AdminGuard } from '../auth/guards/admin.guard';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 
 @ApiTags('oauth')
-@Controller('api/admin/oauth')
+@Controller('admin/oauth')
 export class OAuth2Controller {
   constructor(
     private readonly oauth2Service: OAuth2Service,

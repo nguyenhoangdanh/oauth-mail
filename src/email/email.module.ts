@@ -39,11 +39,11 @@ import { AuthModule } from '../auth/auth.module';
   imports: [
     ConfigModule,
     TypeOrmModule.forFeature([
-      EmailLog, 
-      EmailEvent, 
-      EmailStats, 
+      EmailLog,
+      EmailEvent,
+      EmailStats,
       EmailTemplate,
-      OAuthCredential
+      OAuthCredential,
     ]),
     EventEmitterModule.forRoot(),
     ScheduleModule.forRoot(),
@@ -68,7 +68,8 @@ import { AuthModule } from '../auth/auth.module';
         emailService: EmailService,
         consoleService: ConsoleEmailService,
       ) => {
-        const emailEnabled = configService.get<string>('EMAIL_ENABLED', 'false') === 'true';
+        const emailEnabled =
+          configService.get<string>('EMAIL_ENABLED', 'false') === 'true';
         return emailEnabled ? emailService : consoleService;
       },
       inject: [ConfigService, EmailService, ConsoleEmailService],
@@ -79,17 +80,12 @@ import { AuthModule } from '../auth/auth.module';
     EmailTrackingHelper,
     EmailStatsCronService,
     OAuth2Service,
-    
+
     // Event listeners and processors
     EmailEventListener,
     EmailProcessor,
   ],
-  exports: [
-    EMAIL_SERVICE,
-    EmailService,
-    EmailTrackingHelper,
-    OAuth2Service,
-  ],
+  exports: [EMAIL_SERVICE, EmailService, EmailTrackingHelper, OAuth2Service],
 })
 export class EmailModule {}
 // import { Module } from '@nestjs/common';

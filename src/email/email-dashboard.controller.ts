@@ -17,7 +17,7 @@ import {
 @ApiTags('email-dashboard')
 @ApiBearerAuth()
 @UseGuards(AdminGuard)
-@Controller('api/admin/email-dashboard')
+@Controller('admin/email-dashboard')
 export class EmailDashboardController {
   constructor(
     @InjectRepository(EmailLog)

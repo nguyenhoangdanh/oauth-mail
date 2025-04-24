@@ -63,49 +63,49 @@ export class EmailTrackingHelper {
     Handlebars.registerHelper('currentYear', () => {
       return new Date().getFullYear();
     });
-    
+
     // Helper for conditional statements
-    Handlebars.registerHelper('ifCond', function(v1, operator, v2, options) {
+    Handlebars.registerHelper('ifCond', function (v1, operator, v2, options) {
       switch (operator) {
         case '==':
-          return (v1 == v2) ? options.fn(this) : options.inverse(this);
+          return v1 == v2 ? options.fn(this) : options.inverse(this);
         case '===':
-          return (v1 === v2) ? options.fn(this) : options.inverse(this);
+          return v1 === v2 ? options.fn(this) : options.inverse(this);
         case '!=':
-          return (v1 != v2) ? options.fn(this) : options.inverse(this);
+          return v1 != v2 ? options.fn(this) : options.inverse(this);
         case '!==':
-          return (v1 !== v2) ? options.fn(this) : options.inverse(this);
+          return v1 !== v2 ? options.fn(this) : options.inverse(this);
         case '<':
-          return (v1 < v2) ? options.fn(this) : options.inverse(this);
+          return v1 < v2 ? options.fn(this) : options.inverse(this);
         case '<=':
-          return (v1 <= v2) ? options.fn(this) : options.inverse(this);
+          return v1 <= v2 ? options.fn(this) : options.inverse(this);
         case '>':
-          return (v1 > v2) ? options.fn(this) : options.inverse(this);
+          return v1 > v2 ? options.fn(this) : options.inverse(this);
         case '>=':
-          return (v1 >= v2) ? options.fn(this) : options.inverse(this);
+          return v1 >= v2 ? options.fn(this) : options.inverse(this);
         case '&&':
-          return (v1 && v2) ? options.fn(this) : options.inverse(this);
+          return v1 && v2 ? options.fn(this) : options.inverse(this);
         case '||':
-          return (v1 || v2) ? options.fn(this) : options.inverse(this);
+          return v1 || v2 ? options.fn(this) : options.inverse(this);
         default:
           return options.inverse(this);
       }
     });
-    
+
     // Helper for concatenation
-    Handlebars.registerHelper('concat', function() {
+    Handlebars.registerHelper('concat', function () {
       const args = Array.prototype.slice.call(arguments);
       // Remove the Handlebars options object
       args.pop();
       return args.join('');
     });
-    
+
     // Helper for date formatting
-    Handlebars.registerHelper('formatDate', function(date, format) {
+    Handlebars.registerHelper('formatDate', function (date, format) {
       if (!date) return '';
-      
+
       const d = new Date(date);
-      
+
       // Simple format implementation
       switch (format) {
         case 'short':
@@ -133,12 +133,12 @@ export class EmailTrackingHelper {
       /<a\s+(?:[^>]*?\s+)?href=["']([^"']*)["'][^>]*>(.*?)<\/a>/gi;
 
     // Replace all links with tracking URLs
-    let trackedHtml = html.replace(linkRegex, (match, url, text) => {
+    let trackedHtml = html.replace(linkRegex, (match, url) => {
       // Skip if URL is already a tracking URL
       if (url.includes('/api/email/tracker/')) {
         return match;
       }
-      
+
       const trackingUrl = `${this.appUrl}/api/email/tracker/${emailId}/click?url=${encodeURIComponent(url)}`;
       return match.replace(url, trackingUrl);
     });
@@ -176,102 +176,115 @@ export class EmailTrackingHelper {
     if (!emailId) return '';
     return `${this.appUrl}/api/email/tracker/${emailId}/open`;
   }
-  
+
   /**
    * Track email open event
    */
-  async trackOpen(emailId: string, metadata: Record<string, any> = {}): Promise<void> {
+  async trackOpen(
+    emailId: string,
+    metadata: Record<string, any> = {},
+  ): Promise<void> {
     try {
       // Update email log
-      const emailLog = await this.emailLogRepository.findOne({ 
-        where: { emailId } 
+      const emailLog = await this.emailLogRepository.findOne({
+        where: { emailId },
       });
-      
+
       if (emailLog) {
         // Update open count and status
         emailLog.openCount = (emailLog.openCount || 0) + 1;
-        
+
         // Only update opened status and time if this is the first open
         if (!emailLog.openedAt) {
           emailLog.status = 'opened';
           emailLog.openedAt = new Date();
           emailLog.lastStatusAt = new Date();
         }
-        
+
         // Update metadata if provided
         if (metadata.ipAddress) {
           emailLog.ipAddress = metadata.ipAddress;
         }
-        
+
         if (metadata.userAgent) {
           emailLog.userAgent = metadata.userAgent;
         }
-        
+
         await this.emailLogRepository.save(emailLog);
-        
+
         this.logger.log(`Tracked open for email ${emailId}`);
       }
     } catch (error) {
-      this.logger.error(`Failed to track email open: ${error.message}`, error.stack);
+      this.logger.error(
+        `Failed to track email open: ${error.message}`,
+        error.stack,
+      );
     }
   }
-  
+
   /**
    * Track email click event
    */
-  async trackClick(emailId: string, url: string, metadata: Record<string, any> = {}): Promise<void> {
+  async trackClick(
+    emailId: string,
+    url: string,
+    metadata: Record<string, any> = {},
+  ): Promise<void> {
     try {
       // Update email log
-      const emailLog = await this.emailLogRepository.findOne({ 
-        where: { emailId } 
+      const emailLog = await this.emailLogRepository.findOne({
+        where: { emailId },
       });
-      
+
       if (emailLog) {
         // Update click count and status
         emailLog.clickCount = (emailLog.clickCount || 0) + 1;
-        
+
         // Only update clicked status and time if this is the first click
         if (!emailLog.clickedAt) {
           emailLog.status = 'clicked';
           emailLog.clickedAt = new Date();
           emailLog.lastStatusAt = new Date();
         }
-        
+
         // Always update the last clicked URL
         emailLog.clickUrl = url;
-        
+
         // Update metadata if provided
         if (metadata.ipAddress) {
           emailLog.ipAddress = metadata.ipAddress;
         }
-        
+
         if (metadata.userAgent) {
           emailLog.userAgent = metadata.userAgent;
         }
-        
+
         if (metadata.device) {
           emailLog.device = metadata.device;
         }
-        
+
         if (metadata.location) {
           emailLog.location = metadata.location;
         }
-        
+
         await this.emailLogRepository.save(emailLog);
-        
+
         this.logger.log(`Tracked click for email ${emailId} on URL ${url}`);
       }
     } catch (error) {
-      this.logger.error(`Failed to track email click: ${error.message}`, error.stack);
+      this.logger.error(
+        `Failed to track email click: ${error.message}`,
+        error.stack,
+      );
     }
   }
-  
+
   /**
    * Extract device info from user agent
    */
   extractDeviceInfo(userAgent: string): string {
     if (!userAgent) return 'Unknown';
-    
+
     // Simple device detection logic
     if (/iPhone|iPad|iPod/i.test(userAgent)) {
       return 'iOS Device';
@@ -290,9 +303,6 @@ export class EmailTrackingHelper {
     }
   }
 }
-
-
-
 
 // import * as Handlebars from 'handlebars';
 // import { ConfigService } from '@nestjs/config';

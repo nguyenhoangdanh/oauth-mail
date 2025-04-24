@@ -1,4 +1,4 @@
-// src/app.module.ts 
+// src/app.module.ts
 // Modification to ensure proper module initialization order
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { AppController } from './app.controller';
@@ -24,7 +24,7 @@ import { BullModule } from '@nestjs/bull';
     ConfigModule.forRoot({
       isGlobal: true,
       validate,
-      expandVariables: true, 
+      expandVariables: true,
       cache: true,
     }),
 
@@ -80,7 +80,7 @@ import { BullModule } from '@nestjs/bull';
 
     // Feature modules - Ensure correct order to resolve dependencies
     AuthModule,
-    EmailModule, 
+    EmailModule,
     WebhookModule, // WebhookModule should come after EmailModule
   ],
   controllers: [AppController],
@@ -104,8 +104,6 @@ export class AppModule implements NestModule {
     consumer.apply(SecurityMiddleware).forRoutes('*');
   }
 }
-
-
 
 // // src/app.module.ts
 // import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
@@ -133,7 +131,7 @@ export class AppModule implements NestModule {
 //     ConfigModule.forRoot({
 //       isGlobal: true,
 //       validate,
-//       expandVariables: true, 
+//       expandVariables: true,
 //       cache: true,
 //     }),
 
@@ -213,7 +211,6 @@ export class AppModule implements NestModule {
 //     consumer.apply(SecurityMiddleware).forRoutes('*');
 //   }
 // }
-
 
 // // src/app.module.ts
 // import { Module } from '@nestjs/common';

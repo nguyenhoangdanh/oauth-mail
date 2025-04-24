@@ -12,35 +12,41 @@ import compression from 'compression';
 async function bootstrap() {
   // Create logger instance
   const logger = new Logger('Bootstrap');
-  
+
   try {
     // Create the NestJS application
     const app = await NestFactory.create(AppModule, {
       logger: ['error', 'warn', 'log', 'debug', 'verbose'],
     });
-    
+
     const configService = app.get(ConfigService);
     const isProduction = configService.get('NODE_ENV') === 'production';
-    
+
     // Global filters for exception handling
     app.useGlobalFilters(new GlobalExceptionFilter());
-    
+
     // Apply security middleware
-    app.use(cookieParser(configService.get('COOKIE_SECRET', configService.get('JWT_SECRET'))));
-    
+    app.use(
+      cookieParser(
+        configService.get('COOKIE_SECRET', configService.get('JWT_SECRET')),
+      ),
+    );
+
     // Apply compression to reduce response size
     app.use(compression());
-    
+
     // Security with Helmet
     app.use(
       helmet({
         contentSecurityPolicy: isProduction,
         crossOriginEmbedderPolicy: isProduction,
         crossOriginOpenerPolicy: isProduction,
-        crossOriginResourcePolicy: isProduction ? { policy: 'same-site' } : false,
+        crossOriginResourcePolicy: isProduction
+          ? { policy: 'same-site' }
+          : false,
       }),
     );
-    
+
     // Enable CORS
     const corsOrigins = configService.get<string>('CORS_ORIGINS', '*');
     app.enableCors({
@@ -50,7 +56,7 @@ async function bootstrap() {
       allowedHeaders: 'Content-Type,Accept,Authorization',
       maxAge: 3600,
     });
-    
+
     // Validation pipes
     app.useGlobalPipes(
       new ValidationPipe({
@@ -64,12 +70,14 @@ async function bootstrap() {
         disableErrorMessages: isProduction,
       }),
     );
-    
+
     // Setup Swagger documentation (only for non-production environments)
     if (!isProduction) {
       const swaggerConfig = new DocumentBuilder()
         .setTitle('SecureMail by DN API')
-        .setDescription('API documentation for SecureMail by DN - A robust email service with webhooks')
+        .setDescription(
+          'API documentation for SecureMail by DN - A robust email service with webhooks',
+        )
         .setVersion('1.0')
         .addTag('email', 'Email sending and template operations')
         .addTag('webhooks', 'Webhook subscription management')
@@ -77,30 +85,30 @@ async function bootstrap() {
         .addTag('oauth', 'OAuth configuration for email providers')
         .addBearerAuth()
         .build();
-      
+
       const document = SwaggerModule.createDocument(app, swaggerConfig);
       SwaggerModule.setup('api-docs', app, document);
       logger.log('Swagger documentation enabled at /api-docs');
     }
-    
+
     // Set global prefix for all routes (optional)
     const apiPrefix = configService.get<string>('API_PREFIX', 'api');
     if (apiPrefix) {
       app.setGlobalPrefix(apiPrefix);
     }
-    
+
     // Start server
     const port = configService.get<number>('PORT', 8001);
-    await app.listen(port);
-    
+    await app.listen(port, '0.0.0.0');
+
     // Log startup information
     const appUrl = await app.getUrl();
     logger.log(`Application is running on: ${appUrl}`);
-    
+
     if (!isProduction) {
       logger.log(`Swagger documentation: ${appUrl}/api-docs`);
     }
-    
+
     logger.log(`Environment: ${configService.get('NODE_ENV', 'development')}`);
   } catch (error) {
     logger.error(`Failed to start application: ${error.message}`, error.stack);

@@ -8,11 +8,8 @@ import {
   IsBoolean,
   IsUrl,
   validateSync,
-  IsIn,
-  MinLength,
   Min,
   IsNotEmpty,
-  IsEmail,
   ValidateIf,
 } from 'class-validator';
 
@@ -37,26 +34,26 @@ class EnvironmentVariables {
   @IsOptional()
   DATABASE_URL?: string;
 
-  @ValidateIf(o => !o.DATABASE_URL)
+  @ValidateIf((o) => !o.DATABASE_URL)
   @IsString()
   @IsNotEmpty()
   DB_HOST?: string;
 
-  @ValidateIf(o => !o.DATABASE_URL)
+  @ValidateIf((o) => !o.DATABASE_URL)
   @IsNumber()
   @IsNotEmpty()
   DB_PORT?: number;
 
-  @ValidateIf(o => !o.DATABASE_URL)
+  @ValidateIf((o) => !o.DATABASE_URL)
   @IsString()
   @IsNotEmpty()
   DB_USERNAME?: string;
 
-  @ValidateIf(o => !o.DATABASE_URL)
+  @ValidateIf((o) => !o.DATABASE_URL)
   @IsString()
   DB_PASSWORD?: string;
 
-  @ValidateIf(o => !o.DATABASE_URL)
+  @ValidateIf((o) => !o.DATABASE_URL)
   @IsString()
   @IsNotEmpty()
   DB_DATABASE?: string;
@@ -113,27 +110,25 @@ class EnvironmentVariables {
   @IsOptional()
   EMAIL_ENABLED?: boolean;
 
-  @ValidateIf(o => o.EMAIL_ENABLED === true)
+  @ValidateIf((o) => o.EMAIL_ENABLED === true)
   @IsString()
   @IsNotEmpty()
   EMAIL_HOST?: string;
 
-  @ValidateIf(o => o.EMAIL_ENABLED === true)
+  @ValidateIf((o) => o.EMAIL_ENABLED === true)
   @IsNumber()
   @IsNotEmpty()
   EMAIL_PORT?: number;
 
-  @ValidateIf(o => o.EMAIL_ENABLED === true && o.EMAIL_USE_OAUTH !== true)
+  @ValidateIf((o) => o.EMAIL_ENABLED === true && o.EMAIL_USE_OAUTH !== true)
   @IsString()
-  @IsNotEmpty()
   EMAIL_USER?: string;
 
-  @ValidateIf(o => o.EMAIL_ENABLED === true && o.EMAIL_USE_OAUTH !== true)
+  @ValidateIf((o) => o.EMAIL_ENABLED === true && o.EMAIL_USE_OAUTH !== true)
   @IsString()
-  @IsNotEmpty()
   EMAIL_PASS?: string;
 
-  @ValidateIf(o => o.EMAIL_ENABLED === true)
+  @ValidateIf((o) => o.EMAIL_ENABLED === true)
   @IsNotEmpty()
   EMAIL_FROM?: string;
 
@@ -150,21 +145,22 @@ class EnvironmentVariables {
   EMAIL_USE_TEST_ACCOUNT?: boolean;
 
   // OAuth Configuration (for Gmail)
-  @ValidateIf(o => o.EMAIL_USE_OAUTH === true)
+  @ValidateIf((o) => o.EMAIL_ENABLED === true && o.EMAIL_USE_OAUTH === true)
   @IsString()
   @IsNotEmpty()
   GMAIL_CLIENT_ID?: string;
 
-  @ValidateIf(o => o.EMAIL_USE_OAUTH === true)
+  @ValidateIf((o) => o.EMAIL_ENABLED === true && o.EMAIL_USE_OAUTH === true)
   @IsString()
   @IsNotEmpty()
   GMAIL_CLIENT_SECRET?: string;
 
-  @ValidateIf(o => o.EMAIL_USE_OAUTH === true)
+  @ValidateIf((o) => o.EMAIL_ENABLED === true && o.EMAIL_USE_OAUTH === true)
   @IsString()
+  @IsNotEmpty()
   GMAIL_REFRESH_TOKEN?: string;
 
-  @ValidateIf(o => o.EMAIL_USE_OAUTH === true)
+  @ValidateIf((o) => o.EMAIL_USE_OAUTH === true)
   @IsUrl()
   @IsNotEmpty()
   GMAIL_REDIRECT_URI?: string;
@@ -218,8 +214,10 @@ export function validate(config: Record<string, unknown>) {
 
   if (errors.length > 0) {
     console.error('Environment validation failed:');
-    errors.forEach(error => {
-      console.error(`- ${error.property}: ${Object.values(error.constraints).join(', ')}`);
+    errors.forEach((error) => {
+      console.error(
+        `- ${error.property}: ${Object.values(error.constraints).join(', ')}`,
+      );
     });
     throw new Error(`Environment validation failed: ${errors.toString()}`);
   }
