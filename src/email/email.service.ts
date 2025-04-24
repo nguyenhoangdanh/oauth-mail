@@ -1,7 +1,7 @@
 // src/email/email.service.ts
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, Between, Like } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -12,13 +12,30 @@ import { EmailTemplate } from './entities/email-template.entity';
 import { EmailJob, BulkEmailJob } from './interfaces/email-job.interface';
 import { EmailTrackingHelper } from './email.tracking.helper';
 import Queue from 'bull';
+import * as Handlebars from 'handlebars';
+
+// Define common options interface for consistency
+interface EmailOptions {
+  priority?: number;
+  delay?: number;
+  campaignId?: string;
+  tags?: string[];
+  userId?: string;
+  isTest?: boolean;
+}
+
+// Extend for bulk emails
+interface BulkEmailOptions extends Omit<EmailOptions, 'delay' | 'priority'> {
+  batchSize?: number;
+}
 
 @Injectable()
-export class EmailService implements IEmailService {
+export class EmailService implements IEmailService, OnModuleInit {
   private readonly logger = new Logger(EmailService.name);
   private readonly appName: string;
   private readonly appUrl: string;
   private readonly webhookHandlers: Map<string, Array<(data: any) => void>> = new Map();
+  private readonly cachedTemplates: Map<string, Handlebars.TemplateDelegate<any>> = new Map();
 
   constructor(
     @InjectRepository(EmailLog)
@@ -42,6 +59,45 @@ export class EmailService implements IEmailService {
     this.registerWebhookEventType('bounced');
     this.registerWebhookEventType('complained');
     this.registerWebhookEventType('failed');
+  }
+
+  /**
+   * Initialize service - load templates 
+   */
+  async onModuleInit() {
+    try {
+      await this.loadTemplates();
+      this.logger.log('Email service initialized successfully');
+    } catch (error) {
+      this.logger.error(`Failed to initialize email service: ${error.message}`, error.stack);
+    }
+  }
+
+  /**
+   * Load templates into memory cache
+   */
+  private async loadTemplates(): Promise<void> {
+    try {
+      const templates = await this.templateRepository.find({ 
+        where: { isActive: true } 
+      });
+      
+      for (const template of templates) {
+        try {
+          this.cachedTemplates.set(
+            template.name, 
+            Handlebars.compile(template.content)
+          );
+          this.logger.log(`Loaded template: ${template.name}`);
+        } catch (error) {
+          this.logger.error(`Failed to compile template ${template.name}: ${error.message}`);
+        }
+      }
+      
+      this.logger.log(`Loaded ${this.cachedTemplates.size} email templates`);
+    } catch (error) {
+      this.logger.error(`Failed to load email templates: ${error.message}`, error.stack);
+    }
   }
 
   /**
@@ -191,27 +247,42 @@ export class EmailService implements IEmailService {
     subject: string,
     template: string,
     context: Record<string, any> = {},
-    options: {
-      priority?: number;
-      delay?: number;
-      campaignId?: string;
-    } = {},
+    options: EmailOptions = {},
   ): Promise<string> {
     if (!to || typeof to !== 'string' || to.trim() === '') {
       throw new Error('Email recipient is required');
     }
 
-    // Check if template exists
-    const templateExists = await this.templateRepository.findOne({
-      where: { name: template, isActive: true },
-    });
-
+    // Check if template exists in cache or database
+    let templateExists = this.cachedTemplates.has(template);
+    
     if (!templateExists) {
-      throw new Error(`Email template "${template}" not found or inactive`);
+      // Try to fetch from database if not in cache
+      const templateRecord = await this.templateRepository.findOne({
+        where: { name: template, isActive: true },
+      });
+      
+      templateExists = templateRecord !== null;
+      
+      if (!templateExists) {
+        throw new Error(`Email template "${template}" not found or inactive`);
+      }
+      
+      // Load template into cache for future use
+      await this.reloadTemplate(template);
     }
 
     // Generate unique ID for tracking
     const emailId = uuidv4();
+
+    // Create enhanced context with standard variables
+    const enhancedContext = {
+      ...context,
+      emailId,
+      appName: this.appName,
+      appUrl: this.appUrl,
+      currentYear: new Date().getFullYear(),
+    };
 
     // Create email log entry
     await this.emailLogRepository.save({
@@ -220,11 +291,12 @@ export class EmailService implements IEmailService {
       name: context.name,
       subject,
       template,
-      context: {
-        ...context,
-        emailId,
-      },
+      context: enhancedContext,
       status: 'pending',
+      campaignId: options.campaignId,
+      tags: options.tags,
+      userId: options.userId,
+      isTest: options.isTest || false
     });
 
     // Add to queue with options
@@ -249,22 +321,15 @@ export class EmailService implements IEmailService {
     }
 
     // Add to queue
-    await this.emailQueue.add(
-      'send-email',
-      {
-        id: emailId,
-        to: to.trim(),
-        subject,
-        template,
-        context: {
-          ...context,
-          emailId,
-          campaignId: options.campaignId,
-        },
-        campaignId: options.campaignId,
-      },
-      jobOptions,
-    );
+    await this.emailQueue.add({
+      name: 'send-email',
+      id: emailId,
+      to: to.trim(),
+      subject,
+      template,
+      context: enhancedContext,
+      campaignId: options.campaignId,
+    }, jobOptions);
 
     this.logger.log(`Email queued with ID: ${emailId}`);
     return emailId;
@@ -278,10 +343,7 @@ export class EmailService implements IEmailService {
     subject: string,
     template: string,
     context: Record<string, any> = {},
-    options: {
-      campaignId?: string;
-      batchSize?: number;
-    } = {},
+    options: BulkEmailOptions = {},
   ): Promise<{ batchId: string; queued: number }> {
     // Validate inputs
     if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
@@ -289,17 +351,26 @@ export class EmailService implements IEmailService {
     }
 
     // Check if template exists
-    const templateExists = await this.templateRepository.findOne({
+    const templateRecord = await this.templateRepository.findOne({
       where: { name: template, isActive: true },
     });
 
-    if (!templateExists) {
+    if (!templateRecord) {
       throw new Error(`Email template "${template}" not found or inactive`);
     }
 
     // Generate batch ID
     const batchId = options.campaignId || uuidv4();
     const batchSize = options.batchSize || 100;
+
+    // Create enhanced context with standard variables
+    const enhancedContext = {
+      ...context,
+      appName: this.appName,
+      appUrl: this.appUrl,
+      batchId,
+      currentYear: new Date().getFullYear(),
+    };
 
     // Split recipients into batches
     const batches = [];
@@ -311,25 +382,24 @@ export class EmailService implements IEmailService {
     let queued = 0;
     for (let i = 0; i < batches.length; i++) {
       const batch = batches[i];
-      await this.emailQueue.add(
-        'send-bulk',
-        {
-          batchId,
-          recipients: batch,
-          template,
-          subject,
-          context,
-          campaignId: options.campaignId,
+      await this.emailQueue.add({
+        name: 'send-bulk',
+        batchId,
+        recipients: batch,
+        template,
+        subject,
+        context: enhancedContext,
+        campaignId: options.campaignId,
+        tags: options.tags,
+        userId: options.userId
+      }, {
+        attempts: 2,
+        backoff: {
+          type: 'fixed',
+          delay: 10000,
         },
-        {
-          attempts: 2,
-          backoff: {
-            type: 'fixed',
-            delay: 10000,
-          },
-          removeOnComplete: true,
-        },
-      );
+        removeOnComplete: true,
+      });
       queued += batch.length;
     }
 
@@ -338,16 +408,28 @@ export class EmailService implements IEmailService {
   }
 
   /**
-   * Get email status
+   * Get email status by ID
    */
   async getEmailStatus(emailId: string): Promise<EmailLog | null> {
     return this.emailLogRepository.findOne({ where: { emailId } });
   }
 
   /**
+   * Get email log by ID
+   */
+  async getEmail(id: string): Promise<EmailLog | null> {
+    return this.emailLogRepository.findOne({ where: { id } });
+  }
+
+  /**
    * Track campaign open
    */
   async trackCampaignOpen(campaignId: string, data: Record<string, any> = {}): Promise<void> {
+    if (!campaignId) {
+      this.logger.warn('Attempted to track campaign open without campaignId');
+      return;
+    }
+
     // Emit campaign open event
     this.eventEmitter.emit('campaign.opened', {
       id: uuidv4(),
@@ -362,6 +444,11 @@ export class EmailService implements IEmailService {
    * Register webhook handler
    */
   registerWebhook(event: string, handler: (data: any) => void): void {
+    if (!event || typeof handler !== 'function') {
+      this.logger.warn('Invalid webhook registration attempt');
+      return;
+    }
+
     if (!this.webhookHandlers.has(event)) {
       this.registerWebhookEventType(event);
     }
@@ -376,6 +463,11 @@ export class EmailService implements IEmailService {
    * Register webhook event type
    */
   registerWebhookEventType(event: string): void {
+    if (!event) {
+      this.logger.warn('Attempted to register empty webhook event type');
+      return;
+    }
+
     if (!this.webhookHandlers.has(event)) {
       this.webhookHandlers.set(event, []);
     }
@@ -385,6 +477,11 @@ export class EmailService implements IEmailService {
    * Trigger webhook
    */
   triggerWebhook(event: string, data: any): void {
+    if (!event || !data) {
+      this.logger.warn('Attempted to trigger webhook with invalid parameters');
+      return;
+    }
+
     const handlers = this.webhookHandlers.get(event) || [];
     handlers.forEach((handler) => {
       try {
@@ -410,9 +507,24 @@ export class EmailService implements IEmailService {
     data: { 
       subject?: string; 
       description?: string; 
-      isActive?: boolean 
+      isActive?: boolean;
+      version?: number;
+      lastEditor?: string;
+      previewText?: string;
+      category?: string;
     } = {}
   ): Promise<EmailTemplate> {
+    if (!name || !content) {
+      throw new Error('Template name and content are required');
+    }
+
+    // Validate template syntax
+    try {
+      Handlebars.compile(content);
+    } catch (error) {
+      throw new Error(`Invalid template syntax: ${error.message}`);
+    }
+    
     // Find existing template
     let template = await this.templateRepository.findOne({ where: { name } });
     
@@ -422,6 +534,13 @@ export class EmailService implements IEmailService {
       if (data.subject !== undefined) template.subject = data.subject;
       if (data.description !== undefined) template.description = data.description;
       if (data.isActive !== undefined) template.isActive = data.isActive;
+      if (data.version !== undefined) template.version = data.version;
+      if (data.lastEditor !== undefined) template.lastEditor = data.lastEditor;
+      if (data.previewText !== undefined) template.previewText = data.previewText;
+      if (data.category !== undefined) template.category = data.category;
+      
+      // Increment version
+      template.version = (template.version || 0) + 1;
     } else {
       // Create new template
       template = this.templateRepository.create({
@@ -430,22 +549,62 @@ export class EmailService implements IEmailService {
         subject: data.subject,
         description: data.description,
         isActive: data.isActive !== undefined ? data.isActive : true,
+        version: data.version || 1,
+        lastEditor: data.lastEditor,
+        previewText: data.previewText,
+        category: data.category,
       });
     }
     
-    return this.templateRepository.save(template);
+    const savedTemplate = await this.templateRepository.save(template);
+    
+    // Update template in cache
+    this.cachedTemplates.set(name, Handlebars.compile(content));
+    
+    return savedTemplate;
   }
   
   /**
-   * Get email logs
+   * Get email logs with filters
    */
   async getEmailLogs(
     filters: Record<string, any> = {}, 
     page = 1, 
     limit = 20
   ): Promise<{ data: EmailLog[]; total: number; page: number; pages: number }> {
+    const where: any = {};
+    
+    // Process filters
+    if (filters.status) {
+      where.status = filters.status;
+    }
+    
+    if (filters.template) {
+      where.template = filters.template;
+    }
+    
+    if (filters.search) {
+      where.to = Like(`%${filters.search}%`);
+    }
+    
+    if (filters.campaignId) {
+      where.campaignId = filters.campaignId;
+    }
+    
+    if (filters.userId) {
+      where.userId = filters.userId;
+    }
+    
+    if (filters.start && filters.end) {
+      where.createdAt = Between(
+        new Date(filters.start), 
+        new Date(filters.end)
+      );
+    }
+    
+    // Get data with pagination
     const [data, total] = await this.emailLogRepository.findAndCount({
-      where: filters,
+      where,
       skip: (page - 1) * limit,
       take: limit,
       order: { createdAt: 'DESC' },
@@ -478,7 +637,12 @@ export class EmailService implements IEmailService {
       emailLog.to,
       emailLog.subject,
       emailLog.template,
-      emailLog.context,
+      emailLog.context || {}, // Ensure context is not null
+      {
+        tags: emailLog.tags || [],
+        campaignId: emailLog.campaignId,
+        userId: emailLog.userId
+      }
     );
     
     // Update the original email log with reference to the resend
@@ -486,5 +650,157 @@ export class EmailService implements IEmailService {
     await this.emailLogRepository.save(emailLog);
     
     return newEmailId;
+  }
+  
+  /**
+   * Reload a template from the database into the cache
+   */
+  private async reloadTemplate(templateName: string): Promise<void> {
+    try {
+      const template = await this.templateRepository.findOne({
+        where: { name: templateName },
+      });
+      
+      if (template) {
+        this.cachedTemplates.set(
+          template.name, 
+          Handlebars.compile(template.content)
+        );
+        this.logger.log(`Reloaded template: ${template.name}`);
+      }
+    } catch (error) {
+      this.logger.error(`Failed to reload template: ${error.message}`, error.stack);
+    }
+  }
+  
+  /**
+   * Get all templates with optional filters
+   */
+  async getTemplates(filters: {
+    isActive?: boolean;
+    category?: string;
+    search?: string;
+  } = {}): Promise<EmailTemplate[]> {
+    const where: any = {};
+    
+    if (filters.isActive !== undefined) {
+      where.isActive = filters.isActive;
+    }
+    
+    if (filters.category) {
+      where.category = filters.category;
+    }
+    
+    if (filters.search) {
+      where.name = Like(`%${filters.search}%`);
+    }
+    
+    return this.templateRepository.find({
+      where,
+      order: { updatedAt: 'DESC' }
+    });
+  }
+  
+  /**
+   * Delete a template by name
+   */
+  async deleteTemplate(name: string): Promise<boolean> {
+    if (!name) {
+      throw new Error('Template name is required');
+    }
+
+    // Check if template exists first
+    const template = await this.templateRepository.findOne({ where: { name } });
+    if (!template) {
+      return false; // Template doesn't exist
+    }
+    
+    const result = await this.templateRepository.delete({ name });
+    
+    if (result.affected && result.affected > 0) {
+      // Remove from cache
+      this.cachedTemplates.delete(name);
+      return true;
+    }
+    
+    return false;
+  }
+  
+  /**
+   * Get analytics for sent emails
+   */
+  async getEmailAnalytics(
+    startDate: Date,
+    endDate: Date,
+    filters: { campaignId?: string; template?: string; userId?: string } = {}
+  ): Promise<any> {
+    if (!startDate || !endDate) {
+      throw new Error('Start and end dates are required');
+    }
+
+    const where: any = {
+      createdAt: Between(startDate, endDate)
+    };
+    
+    if (filters.campaignId) {
+      where.campaignId = filters.campaignId;
+    }
+    
+    if (filters.template) {
+      where.template = filters.template;
+    }
+    
+    if (filters.userId) {
+      where.userId = filters.userId;
+    }
+    
+    // Get total counts
+    const [
+      total,
+      sent,
+      delivered,
+      opened,
+      clicked,
+      bounced,
+      failed
+    ] = await Promise.all([
+      this.emailLogRepository.count({ where }),
+      this.emailLogRepository.count({ where: { ...where, status: 'sent' } }),
+      this.emailLogRepository.count({ where: { ...where, status: 'delivered' } }),
+      this.emailLogRepository.count({ where: { ...where, status: 'opened' } }),
+      this.emailLogRepository.count({ where: { ...where, status: 'clicked' } }),
+      this.emailLogRepository.count({ where: { ...where, status: 'bounced' } }),
+      this.emailLogRepository.count({ where: { ...where, status: 'failed' } }),
+    ]);
+    
+    // Calculate rates
+    const deliveryRate = total > 0 ? (delivered / total) * 100 : 0;
+    const openRate = delivered > 0 ? (opened / delivered) * 100 : 0;
+    const clickRate = opened > 0 ? (clicked / opened) * 100 : 0;
+    const bounceRate = total > 0 ? (bounced / total) * 100 : 0;
+    const failureRate = total > 0 ? (failed / total) * 100 : 0;
+    
+    return {
+      period: {
+        start: startDate,
+        end: endDate,
+      },
+      metrics: {
+        total,
+        sent,
+        delivered,
+        opened,
+        clicked,
+        bounced,
+        failed,
+      },
+      rates: {
+        delivery: parseFloat(deliveryRate.toFixed(2)),
+        open: parseFloat(openRate.toFixed(2)),
+        click: parseFloat(clickRate.toFixed(2)),
+        bounce: parseFloat(bounceRate.toFixed(2)),
+        failure: parseFloat(failureRate.toFixed(2)),
+      },
+    };
   }
 }

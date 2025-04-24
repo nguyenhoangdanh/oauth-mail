@@ -1,0 +1,68 @@
+# Multi-stage build for production optimization
+FROM node:18-alpine AS builder
+
+# Set working directory
+WORKDIR /app
+
+# Install Python and build dependencies for modules that need compilation
+RUN apk add --no-cache python3 make g++ gcc
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy source code
+COPY . .
+
+# Build the application
+RUN npm run build
+
+# Remove development dependencies
+RUN npm prune --production
+
+# -----------------------------------------------
+# Production stage
+FROM node:18-alpine AS production
+
+# Set working directory
+WORKDIR /app
+
+# Set environment variables
+ENV NODE_ENV=production
+ENV PORT=8001
+
+# Install system dependencies
+RUN apk add --no-cache tini
+
+# Copy compiled code and dependencies from builder stage
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package*.json ./
+
+# Copy resources
+COPY --from=builder /app/templates ./templates
+
+# Create a non-root user and switch to it
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nestjs -u 1001 -G nodejs
+
+# Make sure the user owns the application files
+RUN chown -R nestjs:nodejs /app
+
+# Switch to non-root user
+USER nestjs
+
+# Expose port
+EXPOSE 8001
+
+# Use tini as entrypoint for proper signal handling
+ENTRYPOINT ["/sbin/tini", "--"]
+
+# Start the application
+CMD ["node", "dist/main"]
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD wget -q -O- http://localhost:8001/health || exit 1

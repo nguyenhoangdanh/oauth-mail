@@ -1,14 +1,18 @@
-// src/common/middleware/security.middleware.ts (enhanced version)
+// src/common/middleware/security.middleware.ts
 import { Injectable, NestMiddleware } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import { ConfigService } from '@nestjs/config';
-import rateLimit from 'express-rate-limit';
+import * as rateLimit from 'express-rate-limit';
+import * as compression from 'compression';
+import * as cookieParser from 'cookie-parser';
 
 @Injectable()
 export class SecurityMiddleware implements NestMiddleware {
   private readonly helmet: any;
   private readonly limiter: any;
+  private readonly compression: any;
+  private readonly cookieParser: any;
 
   constructor(private configService: ConfigService) {
     const isProduction = configService.get('NODE_ENV') === 'production';
@@ -31,10 +35,10 @@ export class SecurityMiddleware implements NestMiddleware {
               ],
               fontSrc: ["'self'", 'https://fonts.gstatic.com'],
               imgSrc: ["'self'", 'data:'],
-              connectSrc: ["'self'", 'https://api.emailjs.com'],
+              connectSrc: ["'self'"],
               frameSrc: ["'none'"],
               objectSrc: ["'none'"],
-              upgradeInsecureRequests: [],
+              upgradeInsecureRequests: isProduction ? [] : null,
             },
           }
         : false,
@@ -61,32 +65,53 @@ export class SecurityMiddleware implements NestMiddleware {
 
     // Configure rate limiting
     this.limiter = rateLimit({
-      windowMs: 15 * 60 * 1000, // 15 minutes
-      max: 100, // Limit each IP to 100 requests per windowMs
-      standardHeaders: true,
-      legacyHeaders: false,
+      windowMs: configService.get<number>('THROTTLE_TTL', 60) * 1000,
+      max: configService.get<number>('THROTTLE_LIMIT', 60),
+      standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+      legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+      message: 'Too many requests from this IP, please try again later',
       skip: (req: Request) => {
-        // Skip rate limiting for certain routes or for admin users
-        const bypassRateLimitPaths = this.configService
-          .get<string>('RATE_LIMIT_BYPASS_PATHS', '/health,/metrics')
+        // Skip rate limiting for certain routes
+        const bypassPaths = this.configService
+          .get<string>('THROTTLER_BYPASS_PATHS', '/health,/metrics,/api-docs')
           .split(',');
 
-        return bypassRateLimitPaths.some((path) => req.path.includes(path));
+        return bypassPaths.some((path) => req.path.includes(path));
       },
     });
+
+    // Configure compression
+    this.compression = compression({
+      level: 6, // Default compression level
+      threshold: 1024, // Only compress responses larger than 1KB
+    });
+
+    // Configure cookie parser
+    this.cookieParser = cookieParser(
+      this.configService.get('COOKIE_SECRET', this.configService.get('JWT_SECRET')),
+    );
   }
 
   use(req: Request, res: Response, next: NextFunction) {
-    // Apply Helmet security headers
-    this.helmet(req, res, (err?: Error) => {
+    // Apply cookie parser first
+    this.cookieParser(req, res, (err?: Error) => {
       if (err) return next(err);
 
-      // Apply rate limiting
-      this.limiter(req, res, next);
+      // Then apply Helmet security headers
+      this.helmet(req, res, (err?: Error) => {
+        if (err) return next(err);
+
+        // Then apply rate limiting
+        this.limiter(req, res, (err?: Error) => {
+          if (err) return next(err);
+
+          // Finally apply compression
+          this.compression(req, res, next);
+        });
+      });
     });
   }
 }
-
 // // src/common/middleware/security.middleware.ts
 // import { Injectable, NestMiddleware } from '@nestjs/common';
 // import { Request, Response, NextFunction } from 'express';

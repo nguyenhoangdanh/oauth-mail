@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { WebhookSubscription } from './entities/webhook-subscription.entity';
+import { WebhookDeliveryLog } from './entities/webhook-delivery-log.entity';
 import { CreateWebhookDto } from './dto/create-webhook.dto';
 import { UpdateWebhookDto } from './dto/update-webhook.dto';
 import { Inject } from '@nestjs/common';
@@ -18,16 +19,20 @@ interface WebhookDeliveryJob {
   event: string;
   payload: any;
   attempt: number;
+  name: string;
 }
 
 @Injectable()
 export class WebhookService {
   private readonly logger = new Logger(WebhookService.name);
   private readonly webhookSecret: string;
+  private readonly webhookTimeout: number;
 
   constructor(
     @InjectRepository(WebhookSubscription)
     private readonly webhookRepository: Repository<WebhookSubscription>,
+    @InjectRepository(WebhookDeliveryLog)
+    private readonly deliveryLogRepository: Repository<WebhookDeliveryLog>,
     @Inject(EMAIL_SERVICE)
     private readonly emailService: EmailService,
     private readonly configService: ConfigService,
@@ -35,13 +40,14 @@ export class WebhookService {
     private readonly webhookQueue: Queue<WebhookDeliveryJob>,
   ) {
     this.webhookSecret = this.configService.get<string>('WEBHOOK_SECRET', 'your-webhook-secret');
+    this.webhookTimeout = this.configService.get<number>('WEBHOOK_TIMEOUT', 10000); // 10 seconds default
     this.registerWebhookHandlers();
   }
 
   private registerWebhookHandlers(): void {
     // Register handlers with the email service for different events
     const events = [
-      'sent', 'delivered', 'opened', 'clicked', 
+      'sent', 'delivered', 'opened', 'clicked',
       'bounced', 'complained', 'failed'
     ];
     
@@ -50,6 +56,8 @@ export class WebhookService {
         await this.processWebhookEvent(event, data);
       });
     });
+    
+    this.logger.log('Registered webhook handlers for email events');
   }
 
   private async processWebhookEvent(event: string, data: any): Promise<void> {
@@ -58,6 +66,8 @@ export class WebhookService {
       const webhooks = await this.webhookRepository.find({
         where: { event, isActive: true }
       });
+      
+      this.logger.debug(`Processing ${event} event, found ${webhooks.length} active webhooks`);
       
       if (webhooks.length === 0) {
         return;
@@ -76,28 +86,30 @@ export class WebhookService {
   }
 
   private async queueWebhookDelivery(
-    webhookId: string, 
-    event: string, 
+    webhookId: string,
+    event: string,
     payload: any
   ): Promise<void> {
-    await this.webhookQueue.add(
-      'deliver-webhook',
-      {
-        webhookId,
-        event,
-        payload,
-        attempt: 1,
-      },
-      {
-        attempts: 5,
-        backoff: {
-          type: 'exponential',
-          delay: 5000,
+    try {
+      await this.webhookQueue.add( 
+        {
+          name: 'deliver-webhook',
+          webhookId,
+          event,
+          payload,
+          attempt: 1,
         },
-        removeOnComplete: true,
-        removeOnFail: false,
-      }
-    );
+        {
+          attempts: 1, // We handle retries manually with exponential backoff
+          removeOnComplete: true,
+          removeOnFail: false,
+        }
+      );
+      
+      this.logger.debug(`Queued webhook delivery for webhookId=${webhookId}, event=${event}`);
+    } catch (error) {
+      this.logger.error(`Failed to queue webhook delivery: ${error.message}`);
+    }
   }
 
   async findAll(): Promise<WebhookSubscription[]> {
@@ -130,9 +142,14 @@ export class WebhookService {
       ...createWebhookDto,
       endpoint,
       secret,
+      headers: createWebhookDto.headers || {},
+      // method: createWebhookDto.method || 'POST'
+      method: 'POST'
     });
     
     const savedWebhook = await this.webhookRepository.save(webhook);
+    
+    this.logger.log(`Created new webhook subscription with ID: ${savedWebhook.id}`);
     
     return savedWebhook;
   }
@@ -146,12 +163,17 @@ export class WebhookService {
       updateWebhookDto.endpoint = this.normalizeUrl(updateWebhookDto.endpoint);
     }
     
+    // Update the webhook
     await this.webhookRepository.update(id, updateWebhookDto);
+    
+    this.logger.log(`Updated webhook subscription with ID: ${id}`);
+    
     return this.webhookRepository.findOne({ where: { id } });
   }
 
   async remove(id: string): Promise<void> {
     await this.webhookRepository.delete(id);
+    this.logger.log(`Deleted webhook subscription with ID: ${id}`);
   }
 
   private normalizeUrl(url: string): string {
@@ -175,7 +197,7 @@ export class WebhookService {
   async sendWebhook(
     webhook: WebhookSubscription,
     data: any,
-  ): Promise<{ success: boolean; statusCode?: number; response?: any }> {
+  ): Promise<{ success: boolean; statusCode?: number; response?: any; error?: string }> {
     try {
       // Prepare the webhook payload
       const timestamp = new Date().toISOString();
@@ -197,37 +219,91 @@ export class WebhookService {
         ...webhook.headers,
       };
 
-      // Send the webhook using fetch API
-      const response = await fetch(webhook.endpoint, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload),
-      });
+      const startTime = Date.now();
 
-      const statusCode = response.status;
-      const responseData = await response.text();
+      // Send the webhook using fetch API with timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), webhook.timeout || this.webhookTimeout);
 
-      // Update webhook stats
-      if (response.ok) {
-        await this.updateWebhookSuccess(webhook);
-      } else {
-        throw new Error(`HTTP status ${statusCode}: ${responseData}`);
+      try {
+        const response = await fetch(webhook.endpoint, {
+          method: webhook.method || 'POST',
+          headers,
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        const duration = Date.now() - startTime;
+        const statusCode = response.status;
+        let responseData;
+
+        try {
+          responseData = await response.text();
+        } catch (error) {
+          responseData = 'Failed to get response body';
+        }
+
+        // Update webhook stats
+        if (response.ok) {
+          await this.updateWebhookSuccess(webhook);
+          
+          this.logger.debug(`Webhook delivery successful: webhookId=${webhook.id}, statusCode=${statusCode}, duration=${duration}ms`);
+          
+          return {
+            success: true,
+            statusCode,
+            response: responseData,
+            error: null
+          };
+        } else {
+          const errorMessage = `HTTP status ${statusCode}: ${responseData}`;
+          await this.updateWebhookFailure(webhook, errorMessage);
+          
+          this.logger.warn(`Webhook delivery failed: webhookId=${webhook.id}, statusCode=${statusCode}, error=${errorMessage}`);
+          
+          return {
+            success: false,
+            statusCode,
+            response: responseData,
+            error: errorMessage
+          };
+        }
+      } catch (error) {
+        clearTimeout(timeoutId);
+        
+        // Handle timeout or network errors
+        const errorMessage = error.name === 'AbortError'
+          ? `Request timed out after ${webhook.timeout || this.webhookTimeout}ms`
+          : error.message;
+          
+        await this.updateWebhookFailure(webhook, errorMessage);
+        
+        this.logger.error(`Webhook delivery error: ${errorMessage}`, error.stack);
+        
+        return {
+          success: false,
+          error: errorMessage
+        };
       }
-
-      return { 
-        success: response.ok, 
-        statusCode,
-        response: responseData
-      };
     } catch (error) {
       await this.updateWebhookFailure(webhook, error.message);
-      throw error;
+      
+      this.logger.error(`Webhook processing error: ${error.message}`, error.stack);
+      
+      return {
+        success: false,
+        error: error.message
+      };
     }
   }
 
   private async updateWebhookSuccess(webhook: WebhookSubscription): Promise<void> {
     webhook.lastSuccess = new Date();
     webhook.failedAttempts = 0;
+    webhook.successCount += 1;
+    webhook.lastErrorMessage = null;
     await this.webhookRepository.save(webhook);
   }
 
@@ -237,8 +313,9 @@ export class WebhookService {
     webhook.lastErrorMessage = errorMessage;
     
     // If too many failures, disable the webhook
-    if (webhook.failedAttempts >= 10) {
+    if (webhook.failedAttempts >= webhook.maxRetries) {
       webhook.isActive = false;
+      this.logger.warn(`Deactivated webhook ${webhook.id} after ${webhook.failedAttempts} failures. Last error: ${errorMessage}`);
     }
     
     await this.webhookRepository.save(webhook);
@@ -263,14 +340,27 @@ export class WebhookService {
 
     try {
       const result = await this.sendWebhook(webhook, testPayload);
-      return {
-        success: result.success,
-        message: `Test webhook successfully sent to ${webhook.endpoint}`,
-        details: {
-          statusCode: result.statusCode,
-          response: result.response
-        }
-      };
+      
+      if (result.success) {
+        return {
+          success: true,
+          message: `Test webhook successfully sent to ${webhook.endpoint}`,
+          details: {
+            statusCode: result.statusCode,
+            response: result.response
+          }
+        };
+      } else {
+        return {
+          success: false,
+          message: `Failed to send test webhook: ${result.error}`,
+          details: {
+            statusCode: result.statusCode,
+            response: result.response,
+            error: result.error
+          }
+        };
+      }
     } catch (error) {
       return {
         success: false,
@@ -303,8 +393,8 @@ export class WebhookService {
   async retryDelivery(deliveryLog: WebhookDeliveryLog): Promise<{ success: boolean; message: string }> {
     try {
       await this.webhookQueue.add(
-        'deliver-webhook',
         {
+          name: 'deliver-webhook',
           webhookId: deliveryLog.webhookId,
           event: deliveryLog.event,
           payload: deliveryLog.payload,
@@ -315,6 +405,12 @@ export class WebhookService {
           removeOnComplete: true,
         }
       );
+      
+      // Update the delivery log
+      deliveryLog.status = 'pending';
+      await this.deliveryLogRepository.save(deliveryLog);
+      
+      this.logger.log(`Requeued webhook delivery for log ID: ${deliveryLog.id}`);
       
       return {
         success: true,
@@ -327,5 +423,46 @@ export class WebhookService {
         message: `Failed to retry webhook delivery: ${error.message}`,
       };
     }
+  }
+  
+  /**
+   * Get delivery logs for a webhook
+   */
+  async getDeliveryLogs(
+    webhookId: string,
+    options: {
+      page?: number;
+      limit?: number;
+      status?: string;
+    } = {}
+  ): Promise<{ data: WebhookDeliveryLog[]; total: number; page: number; pages: number }> {
+    const { page = 1, limit = 20, status } = options;
+    
+    const where: any = { webhookId };
+    
+    if (status) {
+      where.status = status;
+    }
+    
+    const [data, total] = await this.deliveryLogRepository.findAndCount({
+      where,
+      order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+    
+    return {
+      data,
+      total,
+      page,
+      pages: Math.ceil(total / limit),
+    };
+  }
+  
+  /**
+   * Get webhook delivery log by ID
+   */
+  async getDeliveryLog(id: string): Promise<WebhookDeliveryLog> {
+    return this.deliveryLogRepository.findOne({ where: { id } });
   }
 }

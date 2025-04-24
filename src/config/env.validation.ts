@@ -5,13 +5,22 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsBoolean,
+  IsUrl,
   validateSync,
+  IsIn,
+  MinLength,
+  Min,
+  IsNotEmpty,
+  IsEmail,
+  ValidateIf,
 } from 'class-validator';
 
 enum Environment {
   Development = 'development',
   Production = 'production',
   Test = 'test',
+  Staging = 'staging',
 }
 
 class EnvironmentVariables {
@@ -20,32 +29,51 @@ class EnvironmentVariables {
 
   @IsNumber()
   @IsOptional()
+  @Min(1)
   PORT?: number;
 
+  // Database Configuration
   @IsString()
   @IsOptional()
   DATABASE_URL?: string;
 
+  @ValidateIf(o => !o.DATABASE_URL)
   @IsString()
-  @IsOptional()
+  @IsNotEmpty()
   DB_HOST?: string;
 
+  @ValidateIf(o => !o.DATABASE_URL)
   @IsNumber()
-  @IsOptional()
+  @IsNotEmpty()
   DB_PORT?: number;
 
+  @ValidateIf(o => !o.DATABASE_URL)
   @IsString()
-  @IsOptional()
+  @IsNotEmpty()
   DB_USERNAME?: string;
 
+  @ValidateIf(o => !o.DATABASE_URL)
   @IsString()
-  @IsOptional()
   DB_PASSWORD?: string;
 
+  @ValidateIf(o => !o.DATABASE_URL)
   @IsString()
-  @IsOptional()
+  @IsNotEmpty()
   DB_DATABASE?: string;
 
+  @IsBoolean()
+  @IsOptional()
+  DB_SSL?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  DB_SYNCHRONIZE?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  DB_LOGGING?: boolean;
+
+  // Redis Configuration
   @IsString()
   @IsOptional()
   REDIS_HOST?: string;
@@ -58,59 +86,130 @@ class EnvironmentVariables {
   @IsOptional()
   REDIS_PASSWORD?: string;
 
+  @IsBoolean()
+  @IsOptional()
+  USE_REDIS?: boolean;
+
+  // JWT Configuration
   @IsString()
+  @IsNotEmpty()
+  @MinLength(32)
   JWT_SECRET: string;
 
   @IsString()
   @IsOptional()
   JWT_EXPIRES_IN?: string;
 
+  // App Configuration
   @IsString()
   @IsOptional()
   APP_NAME?: string;
 
-  @IsString()
+  @IsUrl({ require_tld: false })
   @IsOptional()
   APP_URL?: string;
 
-  @IsString()
+  // Email Configuration
+  @IsBoolean()
   @IsOptional()
+  EMAIL_ENABLED?: boolean;
+
+  @ValidateIf(o => o.EMAIL_ENABLED === true)
+  @IsString()
+  @IsNotEmpty()
   EMAIL_HOST?: string;
 
+  @ValidateIf(o => o.EMAIL_ENABLED === true)
   @IsNumber()
-  @IsOptional()
+  @IsNotEmpty()
   EMAIL_PORT?: number;
 
+  @ValidateIf(o => o.EMAIL_ENABLED === true && o.EMAIL_USE_OAUTH !== true)
   @IsString()
-  @IsOptional()
+  @IsNotEmpty()
   EMAIL_USER?: string;
 
+  @ValidateIf(o => o.EMAIL_ENABLED === true && o.EMAIL_USE_OAUTH !== true)
   @IsString()
-  @IsOptional()
+  @IsNotEmpty()
   EMAIL_PASS?: string;
 
-  @IsString()
-  @IsOptional()
+  @ValidateIf(o => o.EMAIL_ENABLED === true)
+  @IsEmail()
+  @IsNotEmpty()
   EMAIL_FROM?: string;
 
-  @IsString()
+  @IsBoolean()
   @IsOptional()
+  EMAIL_SECURE?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  EMAIL_USE_OAUTH?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  EMAIL_USE_TEST_ACCOUNT?: boolean;
+
+  // OAuth Configuration (for Gmail)
+  @ValidateIf(o => o.EMAIL_USE_OAUTH === true)
+  @IsString()
+  @IsNotEmpty()
   GMAIL_CLIENT_ID?: string;
 
+  @ValidateIf(o => o.EMAIL_USE_OAUTH === true)
   @IsString()
-  @IsOptional()
+  @IsNotEmpty()
   GMAIL_CLIENT_SECRET?: string;
 
+  @ValidateIf(o => o.EMAIL_USE_OAUTH === true)
   @IsString()
-  @IsOptional()
   GMAIL_REFRESH_TOKEN?: string;
 
+  @ValidateIf(o => o.EMAIL_USE_OAUTH === true)
+  @IsUrl()
+  @IsNotEmpty()
+  GMAIL_REDIRECT_URI?: string;
+
+  // CORS Configuration
   @IsString()
   @IsOptional()
   CORS_ORIGINS?: string;
+
+  // Security Configuration
+  @IsString()
+  @IsOptional()
+  WEBHOOK_SECRET?: string;
+
+  @IsNumber()
+  @IsOptional()
+  WEBHOOK_TIMEOUT?: number;
+
+  // Cache Configuration
+  @IsNumber()
+  @IsOptional()
+  CACHE_TTL?: number;
+
+  // Rate Limiting
+  @IsNumber()
+  @IsOptional()
+  THROTTLE_TTL?: number;
+
+  @IsNumber()
+  @IsOptional()
+  THROTTLE_LIMIT?: number;
+
+  @IsString()
+  @IsOptional()
+  THROTTLER_BYPASS_PATHS?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  THROTTLER_SKIP_IN_DEV?: boolean;
 }
 
 export function validate(config: Record<string, unknown>) {
+  // Convert environment variables to the correct types
   const validatedConfig = plainToClass(EnvironmentVariables, config, {
     enableImplicitConversion: true,
   });
@@ -120,7 +219,11 @@ export function validate(config: Record<string, unknown>) {
   });
 
   if (errors.length > 0) {
-    throw new Error(errors.toString());
+    console.error('Environment validation failed:');
+    errors.forEach(error => {
+      console.error(`- ${error.property}: ${Object.values(error.constraints).join(', ')}`);
+    });
+    throw new Error(`Environment validation failed: ${errors.toString()}`);
   }
 
   return validatedConfig;

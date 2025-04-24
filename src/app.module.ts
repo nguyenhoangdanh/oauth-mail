@@ -1,9 +1,9 @@
 // src/app.module.ts
-import { Module } from '@nestjs/common';
+import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { ConfigModule } from '@nestjs/config';
-import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { GlobalExceptionFilter } from './common/filters/http-exception.filter';
 import { AppCacheModule } from './common/cache/cache.module';
@@ -12,6 +12,10 @@ import { WebhookModule } from './webhook/webhook.module';
 import { AuthModule } from './auth/auth.module';
 import { DatabaseModule } from './database/database.module';
 import { validate } from './config/env.validation';
+import { EventEmitterModule } from '@nestjs/event-emitter';
+import { ScheduleModule } from '@nestjs/schedule';
+import { SecurityMiddleware } from './common/middleware/security.middleware';
+import { BullModule } from '@nestjs/bull';
 
 @Module({
   imports: [
@@ -19,22 +23,66 @@ import { validate } from './config/env.validation';
     ConfigModule.forRoot({
       isGlobal: true,
       validate,
+      expandVariables: true, // This allows for variable expansion like ${VAR}
+      cache: true,
     }),
 
-    // Database
+    // Database connection
     DatabaseModule,
 
-    // Cache
+    // Cache configuration
     AppCacheModule.register(),
 
-    // Rate limiting
-    ThrottlerModule.forRoot({
-      throttlers: [
-        {
-          ttl: 60000, // 60 seconds
-          limit: 60, // 60 requests per minute
+    // Event Emitter for internal events
+    EventEmitterModule.forRoot({
+      // Set this to true to use wildcards
+      wildcard: true,
+      // the delimiter used to segment namespaces
+      delimiter: '.',
+      // set this to true if you want to emit the newListener event
+      newListener: false,
+      // set this to true if you want to emit the removeListener event
+      removeListener: false,
+      // the maximum amount of listeners that can be assigned to an event
+      maxListeners: 20,
+      // show event name in memory leak message when more than maximum amount of listeners is assigned
+      verboseMemoryLeak: true,
+      // disable throwing uncaughtException if an error event is emitted and it has no listeners
+      ignoreErrors: false,
+    }),
+
+    // Scheduled tasks
+    ScheduleModule.forRoot(),
+
+    // Redis queue for background jobs
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        redis: {
+          host: configService.get('REDIS_HOST', 'localhost'),
+          port: configService.get('REDIS_PORT', 6379),
+          password: configService.get('REDIS_PASSWORD', ''),
         },
-      ],
+        defaultJobOptions: {
+          removeOnComplete: true,
+          removeOnFail: false,
+        },
+      }),
+    }),
+
+    // Rate limiting
+    ThrottlerModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        throttlers: [
+          {
+            ttl: configService.get<number>('THROTTLE_TTL', 60) * 1000, // Convert to milliseconds
+            limit: configService.get<number>('THROTTLE_LIMIT', 60),
+          },
+        ],
+      }),
     }),
 
     // Feature modules
@@ -57,7 +105,74 @@ import { validate } from './config/env.validation';
     },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    // Apply security middleware to all routes
+    consumer.apply(SecurityMiddleware).forRoutes('*');
+  }
+}
+
+
+// // src/app.module.ts
+// import { Module } from '@nestjs/common';
+// import { AppController } from './app.controller';
+// import { AppService } from './app.service';
+// import { ConfigModule } from '@nestjs/config';
+// import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+// import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+// import { GlobalExceptionFilter } from './common/filters/http-exception.filter';
+// import { AppCacheModule } from './common/cache/cache.module';
+// import { EmailModule } from './email/email.module';
+// import { WebhookModule } from './webhook/webhook.module';
+// import { AuthModule } from './auth/auth.module';
+// import { DatabaseModule } from './database/database.module';
+// import { validate } from './config/env.validation';
+
+// @Module({
+//   imports: [
+//     // Config with validation
+//     ConfigModule.forRoot({
+//       isGlobal: true,
+//       validate,
+//     }),
+
+//     // Database
+//     DatabaseModule,
+
+//     // Cache
+//     AppCacheModule.register(),
+
+//     // Rate limiting
+//     ThrottlerModule.forRoot({
+//       throttlers: [
+//         {
+//           ttl: 60000, // 60 seconds
+//           limit: 60, // 60 requests per minute
+//         },
+//       ],
+//     }),
+
+//     // Feature modules
+//     AuthModule,
+//     EmailModule,
+//     WebhookModule,
+//   ],
+//   controllers: [AppController],
+//   providers: [
+//     AppService,
+//     // Global exception filter
+//     {
+//       provide: APP_FILTER,
+//       useClass: GlobalExceptionFilter,
+//     },
+//     // Throttler guard
+//     {
+//       provide: APP_GUARD,
+//       useClass: ThrottlerGuard,
+//     },
+//   ],
+// })
+// export class AppModule {}
 
 // // src/app.module.ts
 // import { Module } from '@nestjs/common';

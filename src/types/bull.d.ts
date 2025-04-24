@@ -68,6 +68,7 @@ declare module 'bull' {
     data: T;
     opts: JobOptions;
     attemptsMade: number;
+    queue: Queue;
     update(data: T): Promise<void>;
     remove(): Promise<void>;
     retry(): Promise<void>;
@@ -75,6 +76,13 @@ declare module 'bull' {
     finished(): Promise<any>;
     moveToCompleted(returnValue?: any, ignoreLock?: boolean): Promise<any>;
     moveToFailed(errorInfo: Error, ignoreLock?: boolean): Promise<any>;
+  }
+
+  namespace Bull {
+    export type Job<T> = import('bull').Job<T>;
+    export type Queue<T> = import('bull').Queue<T>;
+    export type JobOptions = import('bull').JobOptions;
+    export type QueueOptions = import('bull').QueueOptions;
   }
 
   export = Queue;

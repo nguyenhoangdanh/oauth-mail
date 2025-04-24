@@ -1,0 +1,120 @@
+version: '3.8'
+
+services:
+  # NestJS API service
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder # Use the builder stage for development
+    container_name: securemail-api
+    ports:
+      - '8001:8001'
+    environment:
+      - NODE_ENV=development
+      - PORT=8001
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USERNAME=postgres
+      - DB_PASSWORD=postgres
+      - DB_DATABASE=securemail
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - JWT_SECRET=development_jwt_secret_for_local_testing_only
+      # Add other environment variables as needed
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: npm run start:dev
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - securemail-network
+    restart: unless-stopped
+
+  # PostgreSQL database
+  postgres:
+    image: postgres:14-alpine
+    container_name: securemail-postgres
+    ports:
+      - '5432:5432'
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=securemail
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - securemail-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for caching and job queues
+  redis:
+    image: redis:7-alpine
+    container_name: securemail-redis
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    networks:
+      - securemail-network
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Mailhog for email testing
+  mailhog:
+    image: mailhog/mailhog
+    container_name: securemail-mailhog
+    ports:
+      - '1025:1025' # SMTP port
+      - '8025:8025' # Web UI port
+    networks:
+      - securemail-network
+    restart: unless-stopped
+
+  # Adminer for database management
+  adminer:
+    image: adminer
+    container_name: securemail-adminer
+    ports:
+      - '8080:8080'
+    environment:
+      - ADMINER_DEFAULT_SERVER=postgres
+    depends_on:
+      - postgres
+    networks:
+      - securemail-network
+    restart: unless-stopped
+
+  # Redis Commander for Redis management
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: securemail-redis-commander
+    ports:
+      - '8081:8081'
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    depends_on:
+      - redis
+    networks:
+      - securemail-network
+    restart: unless-stopped
+
+networks:
+  securemail-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:

@@ -2,28 +2,36 @@
 import { Process, Processor, OnQueueCompleted, OnQueueFailed, OnQueueActive } from '@nestjs/bull';
 import { Logger, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, Like } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ConfigService } from '@nestjs/config';
 import { EmailLog } from './entities/email-log.entity';
-import { EmailJob } from './interfaces/email-job.interface';
+import { EmailTemplate } from './entities/email-template.entity';
+import { EmailJob, BulkEmailJob } from './interfaces/email-job.interface';
 import * as nodemailer from 'nodemailer';
 import * as Handlebars from 'handlebars';
-import { EmailTemplate } from './entities/email-template.entity';
 import { EmailTrackingHelper } from './email.tracking.helper';
 import { OAuth2Service } from './oauth2.service';
 import { v4 as uuidv4 } from 'uuid';
-import Job from 'bull';
+type Job<T = any> = {
+  id: string;
+  data: T;
+  opts: any;
+  attemptsMade: number;
+  queue: any;
+  name: string;
+};
 
 @Injectable()
 @Processor('email-queue')
 export class EmailProcessor {
   private readonly logger = new Logger(EmailProcessor.name);
   private transporter: nodemailer.Transporter;
-  private readonly templates: Map<string, HandlebarsTemplateDelegate> = new Map();
+  private readonly templates: Map<string, HandlebarsTemplateDelegate<any>> = new Map();
   private readonly fromEmail: string;
   private readonly appName: string;
   private readonly appUrl: string;
+  private readonly useOAuth: boolean;
 
   constructor(
     @InjectRepository(EmailLog)
@@ -38,12 +46,23 @@ export class EmailProcessor {
     this.appName = this.configService.get<string>('APP_NAME', 'SecureMail');
     this.appUrl = this.configService.get<string>('APP_URL', 'http://localhost:3000');
     this.fromEmail = this.configService.get<string>('EMAIL_FROM', `"${this.appName}" <noreply@example.com>`);
+    this.useOAuth = this.configService.get<string>('EMAIL_USE_OAUTH', 'false') === 'true';
     
-    // Load templates into memory
-    this.loadTemplates();
+    // Initialize the transporter and load templates
+    this.initializeTransporter().then(() => {
+      this.logger.log('Email transporter initialized');
+    }).catch(error => {
+      this.logger.error(`Failed to initialize email transporter: ${error.message}`, error.stack);
+    });
     
-    // Create transporter
-    this.initializeTransporter();
+    this.loadTemplates().then(() => {
+      this.logger.log('Email templates loaded');
+    }).catch(error => {
+      this.logger.error(`Failed to load email templates: ${error.message}`, error.stack);
+    });
+    
+    // Register Handlebars helpers
+    this.registerHandlebarsHelpers();
   }
 
   private async loadTemplates(): Promise<void> {
@@ -51,16 +70,20 @@ export class EmailProcessor {
       // Load templates from database
       const templates = await this.templateRepository.find({ where: { isActive: true } });
       
-      // Register helpers
-      this.registerHandlebarsHelpers();
-      
       // Load templates into memory
       for (const template of templates) {
-        this.templates.set(template.name, Handlebars.compile(template.content));
-        this.logger.log(`Loaded email template: ${template.name}`);
+        try {
+          this.templates.set(template.name, Handlebars.compile(template.content));
+          this.logger.debug(`Loaded email template: ${template.name}`);
+        } catch (error) {
+          this.logger.error(`Failed to compile template ${template.name}: ${error.message}`);
+        }
       }
+      
+      this.logger.log(`Loaded ${this.templates.size} email templates`);
     } catch (error) {
       this.logger.error(`Failed to load email templates: ${error.message}`, error.stack);
+      throw error;
     }
   }
 
@@ -103,68 +126,122 @@ export class EmailProcessor {
       }
     });
     
-    // Load partials from templates with name starting with "partial-"
-    this.loadPartials();
+    // Date formatting helper
+    Handlebars.registerHelper('formatDate', function(date, format) {
+      if (!date) return '';
+      
+      const d = new Date(date);
+      
+      // Simple format implementation
+      switch (format) {
+        case 'short':
+          return d.toLocaleDateString();
+        case 'long':
+          return d.toLocaleDateString() + ' ' + d.toLocaleTimeString();
+        case 'time':
+          return d.toLocaleTimeString();
+        case 'iso':
+          return d.toISOString();
+        default:
+          return d.toString();
+      }
+    });
+    
+    // Load partials
+    this.loadPartials().catch(error => {
+      this.logger.error(`Failed to load partials: ${error.message}`, error.stack);
+    });
   }
-
+  
   private async loadPartials(): Promise<void> {
     try {
       const partials = await this.templateRepository.find({
-        where: { name: 'partial-%' },
+        where: { name: Like('partial-%') },
       });
       
       for (const partial of partials) {
-        const partialName = partial.name.replace('partial-', '');
-        Handlebars.registerPartial(partialName, partial.content);
-        this.logger.log(`Registered partial: ${partialName}`);
+        try {
+          const partialName = partial.name.replace('partial-', '');
+          Handlebars.registerPartial(partialName, partial.content);
+          this.logger.debug(`Registered email template partial: ${partialName}`);
+        } catch (error) {
+          this.logger.error(`Failed to register partial ${partial.name}: ${error.message}`);
+        }
       }
+      
+      this.logger.log(`Registered ${partials.length} email template partials`);
     } catch (error) {
       this.logger.error(`Failed to load partials: ${error.message}`, error.stack);
+      throw error;
     }
   }
 
   private async initializeTransporter(): Promise<void> {
-    const useOAuth = this.configService.get<string>('EMAIL_USE_OAUTH') === 'true';
-    const emailHost = this.configService.get<string>('EMAIL_HOST', 'smtp.gmail.com');
-    const emailPort = this.configService.get<number>('EMAIL_PORT', 587);
-    const emailUser = this.configService.get<string>('EMAIL_USER', '');
-    const emailPass = this.configService.get<string>('EMAIL_PASS', '');
-    const secure = this.configService.get<string>('EMAIL_SECURE', 'false') === 'true';
-    
     try {
-      if (useOAuth && emailHost.includes('gmail')) {
-        // Use OAuth2 for Gmail
+      if (this.configService.get<string>('EMAIL_USE_TEST_ACCOUNT', 'false') === 'true') {
+        // Create test account for development
+        const testAccount = await nodemailer.createTestAccount();
+        
+        // Fix: Use correct type for transport configuration
         this.transporter = nodemailer.createTransport({
-          host: emailHost,
-          port: emailPort,
-          secure,
+          host: testAccount.smtp.host,
+          port: testAccount.smtp.port,
+          secure: testAccount.smtp.secure,
           auth: {
-            type: 'OAuth2',
-            user: emailUser,
-            clientId: this.configService.get<string>('GMAIL_CLIENT_ID'),
-            clientSecret: this.configService.get<string>('GMAIL_CLIENT_SECRET'),
-            refreshToken: this.configService.get<string>('GMAIL_REFRESH_TOKEN'),
-          },
-        });
-      } else {
-        // Use regular SMTP
-        this.transporter = nodemailer.createTransport({
-          host: emailHost,
-          port: emailPort,
-          secure,
-          auth: {
-            user: emailUser,
-            pass: emailPass,
+            user: testAccount.user,
+            pass: testAccount.pass,
           },
           pool: true,
           maxConnections: 5,
           maxMessages: 100,
-        });
+        } as nodemailer.TransportOptions);
+        
+        this.logger.log(`Created test email account: ${testAccount.user}`);
+        return;
       }
+      
+      const emailHost = this.configService.get<string>('EMAIL_HOST', 'smtp.gmail.com');
+      const emailPort = this.configService.get<number>('EMAIL_PORT', 587);
+      const emailUser = this.configService.get<string>('EMAIL_USER', '');
+      const emailPass = this.configService.get<string>('EMAIL_PASS', '');
+      const emailSecure = this.configService.get<string>('EMAIL_SECURE', 'false') === 'true';
+      
+      // Fix: Use correct type for transport configuration
+      const transportConfig: nodemailer.TransportOptions = {
+        // Cast to any to avoid TypeScript errors with host property
+        host: emailHost,
+        port: emailPort,
+        secure: emailSecure,
+        pool: true,
+        maxConnections: 5,
+        maxMessages: 100,
+      } as any;
+      
+      if (this.useOAuth && emailHost.includes('gmail')) {
+        // Use OAuth2 for Gmail
+        this.logger.log('Using OAuth2 authentication for Gmail');
+        
+        (transportConfig as any).auth = {
+          type: 'OAuth2',
+          user: emailUser,
+          clientId: this.configService.get<string>('GMAIL_CLIENT_ID'),
+          clientSecret: this.configService.get<string>('GMAIL_CLIENT_SECRET'),
+          refreshToken: this.configService.get<string>('GMAIL_REFRESH_TOKEN'),
+          accessToken: await this.oauth2Service.getGmailAccessToken(),
+        };
+      } else {
+        // Use regular username/password
+        (transportConfig as any).auth = {
+          user: emailUser,
+          pass: emailPass,
+        };
+      }
+      
+      this.transporter = nodemailer.createTransport(transportConfig);
       
       // Verify connection
       await this.transporter.verify();
-      this.logger.log('SMTP connection established successfully');
+      this.logger.log(`SMTP connection established to ${emailHost}:${emailPort}`);
     } catch (error) {
       this.logger.error(`Failed to create email transporter: ${error.message}`, error.stack);
       throw error;
@@ -242,13 +319,18 @@ export class EmailProcessor {
         metadata: { messageId: info.messageId },
       });
       
+      // Log test email URL if using test account
+      if (this.configService.get<string>('EMAIL_USE_TEST_ACCOUNT', 'false') === 'true') {
+        this.logger.log(`Test email URL: ${nodemailer.getTestMessageUrl(info)}`);
+      }
+      
       this.logger.log(`Email ${id} sent successfully to ${to}`);
       return { success: true, messageId: info.messageId };
     } catch (error) {
       this.logger.error(`Failed to send email ${id}: ${error.message}`, error.stack);
       
       // Update status if max retries reached
-      if (job.attemptsMade >= job.opts.attempts - 1) {
+      if (job.attemptsMade >= (job.opts?.attempts || 1) - 1) {
         await this.updateEmailStatus(id, 'failed', {
           error: error.message,
         });
@@ -269,8 +351,8 @@ export class EmailProcessor {
   }
 
   @Process('send-bulk')
-  async handleBulkSend(job: Job<any>): Promise<any> {
-    const { batchId, recipients, template, subject, context } = job.data;
+  async handleBulkSend(job: Job<BulkEmailJob>): Promise<any> {
+    const { batchId, recipients, template, subject, context, campaignId, tags, userId } = job.data;
     this.logger.log(`Processing bulk email job ${batchId} with ${recipients.length} recipients`);
     
     const results = {
@@ -299,6 +381,10 @@ export class EmailProcessor {
             batchId,
           },
           status: 'pending',
+          batchId,
+          campaignId,
+          tags,
+          userId
         });
         
         // Add to queue
@@ -312,7 +398,10 @@ export class EmailProcessor {
             ...recipient.context,
             name: recipient.name,
             batchId,
+            campaignId,
           },
+          batchId,
+          campaignId,
         });
         
         results.successful++;
@@ -332,12 +421,13 @@ export class EmailProcessor {
       }
     }
     
+    this.logger.log(`Completed bulk email job ${batchId}: ${results.successful} queued, ${results.failed} failed`);
     return results;
   }
 
   @OnQueueCompleted()
   onCompleted(job: Job, result: any) {
-    this.logger.log(`Job ${job.id} completed with result: ${JSON.stringify(result)}`);
+    this.logger.debug(`Job ${job.id} completed with result: ${JSON.stringify(result)}`);
   }
 
   @OnQueueFailed()
@@ -347,7 +437,7 @@ export class EmailProcessor {
 
   @OnQueueActive()
   onActive(job: Job) {
-    this.logger.log(`Processing job ${job.id} of type ${job.name}`);
+    this.logger.debug(`Processing job ${job.id} of type ${job.name}`);
   }
 
   private async updateEmailStatus(

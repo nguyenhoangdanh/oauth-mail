@@ -6,8 +6,14 @@ import { Repository } from 'typeorm';
 import { WebhookSubscription } from './entities/webhook-subscription.entity';
 import { WebhookService } from './webhook.service';
 import { WebhookDeliveryLog } from './entities/webhook-delivery-log.entity';
-import { Job } from 'bull';
-
+type Job<T = any> = {
+  id: string;
+  data: T;
+  opts: any;
+  attemptsMade: number;
+  queue: any;
+  name: string;
+};
 interface WebhookDeliveryJob {
   webhookId: string;
   event: string;
@@ -25,18 +31,18 @@ export class WebhookProcessor {
     private readonly webhookRepository: Repository<WebhookSubscription>,
     @InjectRepository(WebhookDeliveryLog)
     private readonly deliveryLogRepository: Repository<WebhookDeliveryLog>,
-  ) {}
+  ) { }
 
   @Process('deliver-webhook')
-  async handleDeliverWebhook(job: Job<WebhookDeliveryJob>) {
+  async handleDeliverWebhook(job: Job<WebhookDeliveryJob>): Promise<any> {
     const { webhookId, event, payload, attempt } = job.data;
     
     this.logger.log(`Processing webhook delivery for ${webhookId} - attempt ${attempt}`);
     
     try {
       // Get the webhook
-      const webhook = await this.webhookRepository.findOne({ 
-        where: { id: webhookId } 
+      const webhook = await this.webhookRepository.findOne({
+        where: { id: webhookId }
       });
       
       if (!webhook) {
@@ -54,6 +60,7 @@ export class WebhookProcessor {
         payload,
         attempt,
         status: 'pending',
+        emailId: payload.emailId,
       });
       
       await this.deliveryLogRepository.save(deliveryLog);
@@ -71,7 +78,7 @@ export class WebhookProcessor {
       deliveryLog.completedAt = new Date();
       
       if (!result.success) {
-        deliveryLog.error = result.response;
+        deliveryLog.error = result.error;
       }
       
       await this.deliveryLogRepository.save(deliveryLog);
@@ -135,10 +142,10 @@ export class WebhookProcessor {
           event,
           payload,
           attempt: attempt + 1,
-        }, { 
+        }, {
           delay,
-          attempts: 1, 
-          removeOnComplete: true 
+          attempts: 1,
+          removeOnComplete: true
         });
         
         this.logger.log(`Requeued webhook ${webhookId} with attempt ${attempt + 1} after delay of ${delay}ms`);
@@ -152,7 +159,7 @@ export class WebhookProcessor {
       webhook.lastErrorMessage = error.message;
       
       // If too many failures, disable the webhook
-      if (webhook.failedAttempts >= 10) {
+      if (webhook.failedAttempts >= webhook.maxRetries) {
         webhook.isActive = false;
         this.logger.warn(`Webhook ${webhookId} disabled after too many failures`);
       }
