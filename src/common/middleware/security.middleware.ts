@@ -3,10 +3,9 @@ import { Injectable, NestMiddleware } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import { ConfigService } from '@nestjs/config';
-import * as rateLimit from 'express-rate-limit';
-import * as compression from 'compression';
-import * as cookieParser from 'cookie-parser';
-
+import compression from 'compression';
+import cookieParser from 'cookie-parser';
+import rateLimit from 'express-rate-limit';
 @Injectable()
 export class SecurityMiddleware implements NestMiddleware {
   private readonly helmet: any;

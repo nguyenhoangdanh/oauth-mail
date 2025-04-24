@@ -4,11 +4,10 @@ import { AppModule } from './app.module';
 import { ConfigService } from '@nestjs/config';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import * as cookieParser from 'cookie-parser';
-import * as compression from 'compression';
 import helmet from 'helmet';
 import { GlobalExceptionFilter } from './common/filters/http-exception.filter';
-import { SecurityMiddleware } from './common/middleware/security.middleware';
+import cookieParser from 'cookie-parser';
+import compression from 'compression';
 
 async function bootstrap() {
   // Create logger instance
