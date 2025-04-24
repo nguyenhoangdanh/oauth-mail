@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Your 2FA Backup Codes - {{appName}}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        /* Base styles */
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            background-color: #f9fafb;
+        }
+
+        /* Container styles */
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #ffffff;
+        }
+
+        /* Codes container */
+        .codes-container {
+            background-color: #f1f5f9;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+            font-family: monospace;
+            font-size: 16px;
+        }
+
+        /* Individual code */
+        .code {
+            display: inline-block;
+            background-color: #ffffff;
+            border: 1px solid #cbd5e1;
+            border-radius: 3px;
+            padding: 8px 12px;
+            margin: 5px;
+            font-weight: bold;
+            letter-spacing: 1px;
+        }
+
+        /* Warning box */
+        .warning-box {
+            background-color: #fef2f2;
+            border-left: 4px solid #ef4444;
+            padding: 15px;
+            margin: 20px 0;
+        }
+
+        /* Responsive styles */
+        @media only screen and (max-width: 600px) {
+            .container {
+                width: 100% !important;
+            }
+
+            .code {
+                display: block;
+                margin: 10px 0;
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    {{> header}}
+
+    <div class="container">
+        <h2 style="color: #1f2937; margin-top: 20px;">Your 2FA Backup Codes</h2>
+
+        <p>Hello {{name}},</p>
+
+        <p>You have successfully enabled Two-Factor Authentication for your {{appName}} account. To ensure you always
+            have access to your account, we've generated the following backup codes for you:</p>
+
+        <div class="codes-container">
+            {{#each codes}}
+            <div class="code">{{this}}</div>
+            {{/each}}
+        </div>
+
+        <div class="warning-box">
+            <p style="margin: 0; font-weight: bold; color: #b91c1c;">Important:</p>
+            <ul style="margin-top: 8px; color: #b91c1c;">
+                <li>Keep these codes in a safe place. They are the only way to regain access to your account if you lose
+                    your authentication device.</li>
+                <li>Each code can only be used once.</li>
+                <li>These codes are as important as your password - don't share them with anyone.</li>
+            </ul>
+        </div>
+
+        <p>You can generate new backup codes at any time by visiting your account security settings.</p>
+
+        <div style="text-align: center; margin: 30px 0;">
+            {{#trackButton (concat appUrl "/account/security") "Security Settings" emailId "button"}}{{/trackButton}}
+        </div>
+
+        <p>If you didn't enable 2FA on your account, please contact our support team immediately.</p>
+
+        <p>Thanks,<br>The {{appName}} Team</p>
+    </div>
+
+    {{> footer recipient=to emailId=id}}
+</body>
+
+</html>

@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Unusual Login Attempt - {{appName}}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        /* Base styles */
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            background-color: #f9fafb;
+        }
+
+        /* Container styles */
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #ffffff;
+        }
+
+        /* Alert box */
+        .alert-box {
+            background-color: #fef2f2;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+            border-left: 4px solid #ef4444;
+        }
+
+        /* Login details box */
+        .login-details {
+            background-color: #f1f5f9;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+
+        /* Detail row */
+        .detail-row {
+            display: flex;
+            margin-bottom: 10px;
+        }
+
+        /* Detail label */
+        .detail-label {
+            width: 100px;
+            font-weight: bold;
+            color: #4b5563;
+        }
+
+        /* Detail value */
+        .detail-value {
+            flex: 1;
+        }
+
+        /* Button styles */
+        .button {
+            display: inline-block;
+            background-color: #ef4444;
+            color: white;
+            text-decoration: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            font-weight: bold;
+            text-align: center;
+        }
+
+        /* Secondary button */
+        .button-secondary {
+            background-color: #64748b;
+            margin-top: 10px;
+        }
+
+        /* Responsive styles */
+        @media only screen and (max-width: 600px) {
+            .container {
+                width: 100% !important;
+            }
+
+            .button {
+                width: 100% !important;
+                box-sizing: border-box;
+                margin-bottom: 10px;
+            }
+
+            .detail-row {
+                flex-direction: column;
+            }
+
+            .detail-label {
+                width: 100%;
+                margin-bottom: 5px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    {{> header}}
+
+    <div class="container">
+        <h2 style="color: #1f2937; margin-top: 20px;">⚠️ Unusual Login Attempt</h2>
+
+        <div class="alert-box">
+            <p style="margin: 0; font-weight: bold; color: #b91c1c;">Security Alert:</p>
+            <p style="margin-top: 8px; color: #b91c1c;">We detected an unusual login attempt to your {{appName}}
+                account. This attempt was blocked for your security.</p>
+        </div>
+
+        <p>Hello {{name}},</p>
+
+        <p>Our security system has detected an unusual login attempt to your account. To protect your account, we've
+            blocked this attempt.</p>
+
+        <div class="login-details">
+            <div class="detail-row">
+                <div class="detail-label">Time:</div>
+                <div class="detail-value">{{time}}</div>
+            </div>
+            <div class="detail-row">
+                <div class="detail-label">Device:</div>
+                <div class="detail-value">{{device}}</div>
+            </div>
+            <div class="detail-row">
+                <div class="detail-label">Location:</div>
+                <div class="detail-value">{{location}}</div>
+            </div>
+        </div>
+
+        <p><strong>Was this you?</strong> If you were trying to log in, you can try again or reset your password.</p>
+
+        <p><strong>Wasn't you?</strong> Your account may be at risk. We strongly recommend taking the following security
+            measures immediately:</p>
+
+        <div style="text-align: center; margin: 30px 0;">
+            <div style="margin-bottom: 15px;">
+                {{#trackButton resetPasswordUrl "Reset Your Password" emailId "button"}}{{/trackButton}}
+            </div>
+            <div>
+                {{#trackButton (concat appUrl "/account/security") "Review Security Settings" emailId "button
+                button-secondary"}}{{/trackButton}}
+            </div>
+        </div>
+
+        <p>For additional security, consider enabling Two-Factor Authentication on your account if you haven't already.
+        </p>
+
+        <p>If you need assistance, please contact our support team immediately.</p>
+
+        <p>Thanks,<br>The {{appName}} Security Team</p>
+    </div>
+
+    {{> footer recipient=to emailId=id}}
+</body>
+
+</html>

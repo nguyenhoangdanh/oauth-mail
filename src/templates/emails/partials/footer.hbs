@@ -1,0 +1,19 @@
+<footer
+    style="margin-top: 30px; padding: 20px 0; border-top: 1px solid #e9ecef; text-align: center; color: #6c757d; font-size: 0.9em; font-family: Arial, sans-serif;">
+    <p style="margin: 0 0 10px;">© {{currentYear}} {{appName}}. All rights reserved.</p>
+    <p style="margin: 0; font-size: 12px; color: #94a3b8;">
+        This email was sent to {{recipient}}. If you didn't request this email, please ignore it or <a
+            href="{{appUrl}}/contact" style="color: #3b82f6; text-decoration: none;">contact support</a>.
+    </p>
+    <div style="margin-top: 15px;">
+        <a href="{{appUrl}}/privacy"
+            style="color: #3b82f6; text-decoration: none; font-size: 12px; margin: 0 10px;">Privacy Policy</a>
+        <a href="{{appUrl}}/terms" style="color: #3b82f6; text-decoration: none; font-size: 12px; margin: 0 10px;">Terms
+            of Service</a>
+        <a href="{{appUrl}}/unsubscribe?email={{recipient}}"
+            style="color: #3b82f6; text-decoration: none; font-size: 12px; margin: 0 10px;">Unsubscribe</a>
+    </div>
+</footer>
+
+<!-- Tracking pixel for email opens -->
+<img src="{{appUrl}}/api/email/tracker/{{emailId}}/open" alt="" width="1" height="1" style="display:none;">
