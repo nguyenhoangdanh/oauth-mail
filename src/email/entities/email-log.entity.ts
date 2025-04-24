@@ -1,4 +1,4 @@
-// entities/email-log.entity.ts
+// src/email/entities/email-log.entity.ts
 import {
   Entity,
   Column,
@@ -73,4 +73,40 @@ export class EmailLog {
 
   @Column({ default: 0 })
   clickCount: number;
+  
+  @Column({ nullable: true })
+  @Index()
+  campaignId: string;
+  
+  @Column({ nullable: true })
+  @Index()
+  batchId: string;
+  
+  @Column({ nullable: true })
+  resendId: string;
+  
+  @Column({ nullable: true })
+  ipAddress: string;
+  
+  @Column({ nullable: true })
+  userAgent: string;
+  
+  @Column({ nullable: true })
+  location: string;
+  
+  @Column({ nullable: true })
+  device: string;
+  
+  @Column({ type: 'json', nullable: true })
+  tags: string[];
+  
+  @Column({ nullable: true })
+  @Index()
+  userId: string;
+  
+  @Column({ nullable: true })
+  complaintReason: string;
+  
+  @Column({ default: false })
+  isTest: boolean;
 }

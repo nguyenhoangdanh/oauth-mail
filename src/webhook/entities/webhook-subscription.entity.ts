@@ -40,6 +40,31 @@ export class WebhookSubscription {
 
   @Column({ type: 'json', default: {} })
   headers: Record<string, string>;
+  
+  @Column({ nullable: true })
+  lastErrorMessage: string;
+  
+  @Column({ default: 0 })
+  successCount: number;
+  
+  @Column({ default: 5 })
+  maxRetries: number;
+  
+  @Column({ type: 'int', default: 30 })
+  timeout: number;
+  
+  @Column({ nullable: true })
+  description: string;
+  
+  @Column({ nullable: true })
+  @Index()
+  userId: string;
+  
+  @Column({ type: 'json', nullable: true })
+  metadata: Record<string, any>;
+  
+  @Column({ default: 'POST' })
+  method: string;
 
   @CreateDateColumn()
   createdAt: Date;
