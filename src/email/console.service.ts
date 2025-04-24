@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 @Injectable()
 export class ConsoleEmailService implements IEmailService {
   private readonly logger = new Logger(ConsoleEmailService.name);
+  private readonly webhookHandlers: Map<string, Array<(data: any) => void>> = new Map();
 
   async sendVerificationEmail(
     to: string,
@@ -138,5 +139,26 @@ export class ConsoleEmailService implements IEmailService {
       ID: ${emailId}
     `);
     return uuidv4();
+  }
+
+  /**
+   * Register webhook handler for specific event
+   * @param event Event name to listen for
+   * @param handler Function to call when event occurs
+   */
+  registerWebhook(event: string, handler: (data: any) => void): void {
+    if (!event || typeof handler !== 'function') {
+      this.logger.warn('Invalid webhook registration attempt');
+      return;
+    }
+  
+    if (!this.webhookHandlers.has(event)) {
+      this.webhookHandlers.set(event, []);
+    }
+  
+    const handlers = this.webhookHandlers.get(event) || [];
+    handlers.push(handler);
+    this.webhookHandlers.set(event, handlers);
+    this.logger.log(`Registered webhook handler for event: ${event}`);
   }
 }

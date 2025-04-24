@@ -13,6 +13,7 @@ import { EmailService } from '../email/email.service';
 import { EMAIL_SERVICE } from '../email/email.di-token';
 import * as crypto from 'crypto';
 import Queue from 'bull';
+import { IEmailService } from 'src/email/email.port';
 
 interface WebhookDeliveryJob {
   webhookId: string;
@@ -34,7 +35,7 @@ export class WebhookService {
     @InjectRepository(WebhookDeliveryLog)
     private readonly deliveryLogRepository: Repository<WebhookDeliveryLog>,
     @Inject(EMAIL_SERVICE)
-    private readonly emailService: EmailService,
+    private readonly emailService: IEmailService, 
     private readonly configService: ConfigService,
     @InjectQueue('webhook-queue')
     private readonly webhookQueue: Queue<WebhookDeliveryJob>,
@@ -50,9 +51,10 @@ export class WebhookService {
       'sent', 'delivered', 'opened', 'clicked',
       'bounced', 'complained', 'failed'
     ];
+    const emailService = this.emailService as IEmailService;
     
     events.forEach(event => {
-      this.emailService.registerWebhook(event, async (data) => {
+      emailService.registerWebhook(event, async (data) => {
         await this.processWebhookEvent(event, data);
       });
     });

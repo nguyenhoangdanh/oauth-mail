@@ -33,7 +33,7 @@ import { OAuthCredential } from './entities/oauth-credential.entity';
 
 // Auth
 import { AuthModule } from '../auth/auth.module';
-import { WebhookController } from 'src/webhook/webhook.controller';
+// Remove the WebhookController import - this is creating the circular dependency
 
 @Module({
   imports: [
@@ -54,7 +54,7 @@ import { WebhookController } from 'src/webhook/webhook.controller';
   ],
   controllers: [
     EmailController,
-    WebhookController,
+    // Remove WebhookController from here
     EmailDashboardController,
     EmailTemplateController,
     OAuth2Controller,

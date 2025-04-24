@@ -40,6 +40,13 @@ export interface IEmailService {
   ): Promise<string>;
   
   getEmailStatus(emailId: string): Promise<any>; 
+
+  /**
+   * Register webhook handler for specific event
+   * @param event Event name to listen for
+   * @param handler Function to call when event occurs
+   */
+  registerWebhook(event: string, handler: (data: any) => void): void;
   
   /**
    * Queue an email to be sent

@@ -1,5 +1,5 @@
 // src/webhook/webhook.module.ts
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BullModule } from '@nestjs/bull';
 import { ConfigModule } from '@nestjs/config';
@@ -17,7 +17,8 @@ import { AuthModule } from '../auth/auth.module';
     BullModule.registerQueue({
       name: 'webhook-queue',
     }),
-    EmailModule,
+    // Use forwardRef to break the circular dependency
+    forwardRef(() => EmailModule),
     AuthModule,
     ConfigModule,
   ],
