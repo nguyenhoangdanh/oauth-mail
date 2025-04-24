@@ -45,7 +45,7 @@ export class EmailProcessor {
   ) {
     this.appName = this.configService.get<string>('APP_NAME', 'SecureMail');
     this.appUrl = this.configService.get<string>('APP_URL', 'http://localhost:3000');
-    this.fromEmail = this.configService.get<string>('EMAIL_FROM', `"${this.appName}" <noreply@example.com>`);
+    this.fromEmail = this.configService.get<string>('EMAIL_FROM', `"${this.appName}" <hoangdanh54317@gmail.com>`);
     this.useOAuth = this.configService.get<string>('EMAIL_USE_OAUTH', 'false') === 'true';
     
     // Initialize the transporter and load templates

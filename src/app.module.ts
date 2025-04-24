@@ -3,7 +3,7 @@ import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { GlobalExceptionFilter } from './common/filters/http-exception.filter';
 import { AppCacheModule } from './common/cache/cache.module';
@@ -16,6 +16,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
 import { SecurityMiddleware } from './common/middleware/security.middleware';
 import { BullModule } from '@nestjs/bull';
+import { BullRootModuleOptions } from '@nestjs/bull/dist/interfaces';
 
 @Module({
   imports: [
@@ -23,7 +24,7 @@ import { BullModule } from '@nestjs/bull';
     ConfigModule.forRoot({
       isGlobal: true,
       validate,
-      expandVariables: true, // This allows for variable expansion like ${VAR}
+      expandVariables: true, 
       cache: true,
     }),
 
@@ -35,19 +36,12 @@ import { BullModule } from '@nestjs/bull';
 
     // Event Emitter for internal events
     EventEmitterModule.forRoot({
-      // Set this to true to use wildcards
       wildcard: true,
-      // the delimiter used to segment namespaces
       delimiter: '.',
-      // set this to true if you want to emit the newListener event
       newListener: false,
-      // set this to true if you want to emit the removeListener event
       removeListener: false,
-      // the maximum amount of listeners that can be assigned to an event
       maxListeners: 20,
-      // show event name in memory leak message when more than maximum amount of listeners is assigned
       verboseMemoryLeak: true,
-      // disable throwing uncaughtException if an error event is emitted and it has no listeners
       ignoreErrors: false,
     }),
 
@@ -58,17 +52,16 @@ import { BullModule } from '@nestjs/bull';
     BullModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        redis: {
-          host: configService.get('REDIS_HOST', 'localhost'),
-          port: configService.get('REDIS_PORT', 6379),
-          password: configService.get('REDIS_PASSWORD', ''),
-        },
-        defaultJobOptions: {
-          removeOnComplete: true,
-          removeOnFail: false,
-        },
-      }),
+      useFactory: (configService: ConfigService) => {
+        return {
+          redis: {
+            host: configService.get('REDIS_HOST', 'localhost'),
+            port: configService.get('REDIS_PORT', 6380),
+            password: configService.get('REDIS_PASSWORD', ''),
+          },
+          prefix: 'bull',
+        } as any;
+      },
     }),
 
     // Rate limiting
@@ -78,7 +71,7 @@ import { BullModule } from '@nestjs/bull';
       useFactory: (configService: ConfigService) => ({
         throttlers: [
           {
-            ttl: configService.get<number>('THROTTLE_TTL', 60) * 1000, // Convert to milliseconds
+            ttl: configService.get<number>('THROTTLE_TTL', 60) * 1000,
             limit: configService.get<number>('THROTTLE_LIMIT', 60),
           },
         ],

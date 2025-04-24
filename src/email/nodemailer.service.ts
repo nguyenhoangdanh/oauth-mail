@@ -69,7 +69,7 @@ export class NodemailerService implements IEmailService {
     );
     this.fromEmail = this.configService.get<string>(
       'EMAIL_FROM',
-      `"${this.appName}" <noreply@example.com>`,
+      `"${this.appName}" <hoangdanh54317@gmail.com>`,
     );
 
     // Set up templates directory
@@ -154,127 +154,131 @@ export class NodemailerService implements IEmailService {
   }
 
   // Implement IEmailService methods
-  async sendVerificationEmail(
-    to: string,
-    name: string | null,
-    token: string,
-  ): Promise<void> {
-    const verificationUrl = `${this.appUrl}/auth/verify-email/${token}`;
-    const context = {
-      appName: this.appName,
-      name: name || 'User',
-      verificationUrl,
-    };
+  // Sửa các phương thức để trả về Promise<string>
 
-    await this.queueEmail(
-      to,
-      `Verify your email for ${this.appName}`,
-      'verification',
-      context,
-    );
-  }
+async sendVerificationEmail(
+  to: string,
+  name: string | null,
+  token: string,
+): Promise<string> {
+  const verificationUrl = `${this.appUrl}/auth/verify-email/${token}`;
+  const context = {
+    appName: this.appName,
+    name: name || 'User',
+    verificationUrl,
+  };
 
-  async sendPasswordResetEmail(
-    to: string,
-    name: string | null,
-    token: string,
-  ): Promise<void> {
-    const resetUrl = `${this.appUrl}/auth/reset-password/${token}`;
-    const context = {
-      appName: this.appName,
-      name: name || 'User',
-      resetUrl,
-    };
+  return this.queueEmail(
+    to,
+    `Verify your email for ${this.appName}`,
+    'verification',
+    context,
+  );
+}
 
-    await this.queueEmail(
-      to,
-      `Reset your password for ${this.appName}`,
-      'password-reset',
-      context,
-    );
-  }
+async sendPasswordResetEmail(
+  to: string,
+  name: string | null,
+  token: string,
+): Promise<string> {
+  const resetUrl = `${this.appUrl}/auth/reset-password/${token}`;
+  const context = {
+    appName: this.appName,
+    name: name || 'User',
+    resetUrl,
+  };
 
-  async sendWelcomeEmail(to: string, name: string | null): Promise<void> {
-    const context = {
-      appName: this.appName,
-      name: name || 'User',
-      loginUrl: `${this.appUrl}/auth/login`,
-    };
+  return this.queueEmail(
+    to,
+    `Reset your password for ${this.appName}`,
+    'password-reset',
+    context,
+  );
+}
 
-    await this.queueEmail(
-      to,
-      `Welcome to ${this.appName}!`,
-      'welcome',
-      context,
-    );
-  }
+async sendWelcomeEmail(to: string, name: string | null): Promise<string> {
+  const context = {
+    appName: this.appName,
+    name: name || 'User',
+    loginUrl: `${this.appUrl}/auth/login`,
+  };
 
-  async sendTwoFactorBackupCodesEmail(
-    to: string,
-    name: string | null,
-    codes: string[],
-  ): Promise<void> {
-    const context = {
-      appName: this.appName,
-      name: name || 'User',
-      codes,
-    };
+  return this.queueEmail(
+    to,
+    `Welcome to ${this.appName}!`,
+    'welcome',
+    context,
+  );
+}
 
-    await this.queueEmail(
-      to,
-      `Your 2FA backup codes for ${this.appName}`,
-      '2fa-backup-codes',
-      context,
-    );
-  }
+async sendTwoFactorBackupCodesEmail(
+  to: string,
+  name: string | null,
+  codes: string[],
+): Promise<string> {
+  const context = {
+    appName: this.appName,
+    name: name || 'User',
+    codes,
+  };
 
-  async sendLoginNotificationEmail(
-    to: string,
-    name: string | null,
-    device: string,
-    location: string,
-    time: Date,
-  ): Promise<void> {
-    const context = {
-      appName: this.appName,
-      name: name || 'User',
-      device,
-      location,
-      time: time.toLocaleString(),
-      accountSettingsUrl: `${this.appUrl}/account/security`,
-    };
+  return this.queueEmail(
+    to,
+    `Your 2FA backup codes for ${this.appName}`,
+    '2fa-backup-codes',
+    context,
+  );
+}
 
-    await this.queueEmail(
-      to,
-      `New login to your ${this.appName} account`,
-      'login-notification',
-      context,
-    );
-  }
+async sendLoginNotificationEmail(
+  to: string,
+  name: string | null,
+  device: string,
+  location: string,
+  time: Date,
+): Promise<string> {
+  const context = {
+    appName: this.appName,
+    name: name || 'User',
+    device,
+    location,
+    time: time.toLocaleString(),
+    accountSettingsUrl: `${this.appUrl}/account/security`,
+  };
 
-  async sendLoginAttemptNotificationEmail(
-    to: string,
-    name: string | null,
-    device: string,
-    location: string,
-    time: Date,
-  ): Promise<void> {
-    const context = {
-      appName: this.appName,
-      name: name || 'User',
-      device,
-      location,
-      time: time.toLocaleString(),
-      resetPasswordUrl: `${this.appUrl}/auth/forgot-password`,
-    };
+  return this.queueEmail(
+    to,
+    `New login to your ${this.appName} account`,
+    'login-notification',
+    context,
+  );
+}
 
-    await this.queueEmail(
-      to,
-      `Unusual login attempt on your ${this.appName} account`,
-      'login-attempt',
-      context,
-    );
-  }
+async sendLoginAttemptNotificationEmail(
+  to: string,
+  name: string | null,
+  device: string,
+  location: string,
+  time: Date,
+): Promise<string> {
+  const context = {
+    appName: this.appName,
+    name: name || 'User',
+    device,
+    location,
+    time: time.toLocaleString(),
+    resetPasswordUrl: `${this.appUrl}/auth/forgot-password`,
+  };
+
+  return this.queueEmail(
+    to,
+    `Unusual login attempt on your ${this.appName} account`,
+    'login-attempt',
+    context,
+  );
+}
+
+
 
   // Enhanced methods for webhook functionality
   registerWebhook(event: string, handler: WebhookHandler): void {
@@ -311,9 +315,9 @@ export class NodemailerService implements IEmailService {
   }
 
   // Email tracking methods
-  getEmailStatus(emailId: string): EmailJob | undefined {
-    return this.emailJobs.get(emailId);
-  }
+async getEmailStatus(emailId: string): Promise<any> {
+  return Promise.resolve(this.emailJobs.get(emailId));
+}
 
   getAllEmails(): EmailJob[] {
     return Array.from(this.emailJobs.values());
@@ -606,6 +610,63 @@ export class NodemailerService implements IEmailService {
       );
     }
   }
+
+
+  async sendBulkEmails(
+    recipients: Array<{ email: string; name?: string; context?: Record<string, any> }>,
+    subject: string,
+    template: string,
+    context?: Record<string, any>,
+    options?: any
+  ): Promise<{ batchId: string; queued: number }> {
+    // Tạo batchId
+    const batchId = options?.batchId || uuidv4();
+    let queued = 0;
+    
+    // Gửi email đến từng người nhận
+    for (const recipient of recipients) {
+      try {
+        // Kết hợp context chung và context riêng của người nhận
+        const mergedContext = {
+          ...context,
+          ...recipient.context,
+          name: recipient.name,
+          batchId: batchId // Thêm batchId vào context thay vì truyền như một tham số riêng biệt
+        };
+        
+        // Chỉ truyền 4 tham số cho queueEmail
+        await this.queueEmail(
+          recipient.email,
+          subject,
+          template,
+          mergedContext
+        );
+        
+        queued++;
+      } catch (error) {
+        this.logger.error(`Failed to queue email for ${recipient.email}: ${error.message}`);
+      }
+    }
+    
+    return { batchId, queued };
+  }
+
+async resendEmail(emailId: string): Promise<string> {
+  // Tìm email từ cache hoặc cơ sở dữ liệu
+  const emailJob = this.emailJobs.get(emailId);
+  
+  if (!emailJob) {
+    throw new Error(`Email with ID ${emailId} not found`);
+  }
+  
+  // Tạo email mới với cùng thông tin
+  return this.queueEmail(
+    emailJob.to,
+    emailJob.subject,
+    emailJob.template,
+    emailJob.context
+  );
+}
 
   private getTemplate(name: string): HandlebarsTemplateDelegate | undefined {
     // Check if template exists

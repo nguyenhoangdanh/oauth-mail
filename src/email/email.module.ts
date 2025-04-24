@@ -49,15 +49,6 @@ import { WebhookController } from 'src/webhook/webhook.controller';
     ScheduleModule.forRoot(),
     BullModule.registerQueue({
       name: 'email-queue',
-      defaultJobOptions: {
-        attempts: 3,
-        backoff: {
-          type: 'exponential',
-          delay: 5000,
-        },
-        removeOnComplete: true,
-        removeOnFail: false,
-      },
     }),
     AuthModule,
   ],
@@ -101,7 +92,6 @@ import { WebhookController } from 'src/webhook/webhook.controller';
   ],
 })
 export class EmailModule {}
-
 // import { Module } from '@nestjs/common';
 // import { ConfigModule, ConfigService } from '@nestjs/config';
 // import { EventEmitter2, EventEmitterModule } from '@nestjs/event-emitter';

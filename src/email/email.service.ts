@@ -448,55 +448,58 @@ export class EmailService implements IEmailService, OnModuleInit {
       this.logger.warn('Invalid webhook registration attempt');
       return;
     }
-
+  
     if (!this.webhookHandlers.has(event)) {
       this.registerWebhookEventType(event);
     }
-
+  
     const handlers = this.webhookHandlers.get(event) || [];
     handlers.push(handler);
     this.webhookHandlers.set(event, handlers);
     this.logger.log(`Registered webhook handler for event: ${event}`);
   }
 
-  /**
-   * Register webhook event type
-   */
-  registerWebhookEventType(event: string): void {
-    if (!event) {
-      this.logger.warn('Attempted to register empty webhook event type');
-      return;
-    }
-
-    if (!this.webhookHandlers.has(event)) {
-      this.webhookHandlers.set(event, []);
-    }
+ /**
+ * Register webhook event type
+ */
+registerWebhookEventType(event: string): void {
+  if (!event) {
+    this.logger.warn('Attempted to register empty webhook event type');
+    return;
   }
+
+  if (!this.webhookHandlers.has(event)) {
+    this.webhookHandlers.set(event, []);
+  }
+}
 
   /**
    * Trigger webhook
    */
-  triggerWebhook(event: string, data: any): void {
-    if (!event || !data) {
-      this.logger.warn('Attempted to trigger webhook with invalid parameters');
-      return;
-    }
-
-    const handlers = this.webhookHandlers.get(event) || [];
-    handlers.forEach((handler) => {
-      try {
-        handler(data);
-      } catch (error) {
-        this.logger.error(
-          `Error in webhook handler for ${event}: ${error.message}`,
-          error.stack,
-        );
-      }
-    });
-
-    // Also emit as a NestJS event
-    this.eventEmitter.emit(`email.${event}`, data);
+/**
+ * Trigger webhook
+ */
+triggerWebhook(event: string, data: any): void {
+  if (!event || !data) {
+    this.logger.warn('Attempted to trigger webhook with invalid parameters');
+    return;
   }
+
+  const handlers = this.webhookHandlers.get(event) || [];
+  handlers.forEach((handler) => {
+    try {
+      handler(data);
+    } catch (error) {
+      this.logger.error(
+        `Error in webhook handler for ${event}: ${error.message}`,
+        error.stack,
+      );
+    }
+  });
+
+  // Also emit as a NestJS event
+  this.eventEmitter.emit(`email.${event}`, data);
+}
   
   /**
    * Create or update a template

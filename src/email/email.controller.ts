@@ -375,10 +375,25 @@ export class EmailController {
     @Res() res: Response,
   ) {
     const userAgent = request.headers['user-agent'] || '';
-    const ipAddress = request.ip || request.headers['x-forwarded-for'] || '';
+    const ipAddress = request.ip || request.headers['x-forwarded-for']?.toString() || '';
     
     // Track campaign open with enhanced analytics
     await this.emailService.trackCampaignOpen(campaignId, { 
       userAgent, 
       ipAddress,
-      device: this.emailTrackingHelper.extractDeviceInfo(
+      device: this.emailTrackingHelper.extractDeviceInfo(userAgent),
+    });
+    
+    // Return a 1x1 transparent pixel
+    const pixel = Buffer.from(
+      'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+      'base64',
+    );
+    
+    res.setHeader('Content-Type', 'image/gif');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    return res.send(pixel);
+  }
+}

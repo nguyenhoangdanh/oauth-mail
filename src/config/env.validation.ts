@@ -93,7 +93,6 @@ class EnvironmentVariables {
   // JWT Configuration
   @IsString()
   @IsNotEmpty()
-  @MinLength(32)
   JWT_SECRET: string;
 
   @IsString()
@@ -135,7 +134,6 @@ class EnvironmentVariables {
   EMAIL_PASS?: string;
 
   @ValidateIf(o => o.EMAIL_ENABLED === true)
-  @IsEmail()
   @IsNotEmpty()
   EMAIL_FROM?: string;
 

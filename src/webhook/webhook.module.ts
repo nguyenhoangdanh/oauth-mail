@@ -16,11 +16,6 @@ import { AuthModule } from '../auth/auth.module';
     TypeOrmModule.forFeature([WebhookSubscription, WebhookDeliveryLog]),
     BullModule.registerQueue({
       name: 'webhook-queue',
-      defaultJobOptions: {
-        attempts: 1, // We handle retries manually
-        removeOnComplete: true,
-        removeOnFail: false,
-      },
     }),
     EmailModule,
     AuthModule,

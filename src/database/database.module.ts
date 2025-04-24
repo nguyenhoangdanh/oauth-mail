@@ -25,9 +25,7 @@ import { Logger } from '@nestjs/common';
             migrations: [join(__dirname, './migrations/*{.ts,.js}')],
             synchronize: configService.get<boolean>('DB_SYNCHRONIZE', false),
             logging: configService.get<boolean>('DB_LOGGING', false),
-            ssl: configService.get<boolean>('DB_SSL', false) ? {
-              rejectUnauthorized: false, // Needed for some cloud providers
-            } : false,
+            ssl:false,
             autoLoadEntities: true,
             keepConnectionAlive: true,
             retryAttempts: 5,
@@ -40,7 +38,7 @@ import { Logger } from '@nestjs/common';
         return {
           type: 'postgres',
           host: configService.get<string>('DB_HOST', 'localhost'),
-          port: configService.get<number>('DB_PORT', 5432),
+          port: configService.get<number>('DB_PORT', 5433),
           username: configService.get<string>('DB_USERNAME', 'postgres'),
           password: configService.get<string>('DB_PASSWORD', ''),
           database: configService.get<string>('DB_DATABASE', 'securemail'),
@@ -48,9 +46,7 @@ import { Logger } from '@nestjs/common';
           migrations: [join(__dirname, './migrations/*{.ts,.js}')],
           synchronize: configService.get<boolean>('DB_SYNCHRONIZE', false),
           logging: configService.get<boolean>('DB_LOGGING', false),
-          ssl: configService.get<boolean>('DB_SSL', false) ? {
-            rejectUnauthorized: false,
-          } : false,
+          ssl: false,
           autoLoadEntities: true,
           keepConnectionAlive: true,
           retryAttempts: 5,

@@ -20,7 +20,7 @@ services:
       - DB_DATABASE=securemail
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - JWT_SECRET=development_jwt_secret_for_local_testing_only
+      - JWT_SECRET=hoangdanhthanhngan1113082000ABCD1234
       # Add other environment variables as needed
     volumes:
       - .:/app
