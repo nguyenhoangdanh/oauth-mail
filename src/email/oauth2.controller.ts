@@ -50,6 +50,7 @@ export class OAuth2Controller {
       await this.oauth2Service.exchangeCodeForTokens(code);
       return res.redirect('/settings?oauth=success');
     } catch (error) {
+      console.log('error', error);
       return res.redirect('/settings?oauth=error');
     }
   }
@@ -62,6 +63,7 @@ export class OAuth2Controller {
       const token = await this.oauth2Service.getGmailAccessToken();
       return { success: true, tokenPresent: !!token };
     } catch (error) {
+      console.log('error', error);
       return { success: false, error: error.message };
     }
   }

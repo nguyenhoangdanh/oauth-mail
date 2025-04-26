@@ -26,11 +26,12 @@ async function bootstrap() {
     app.useGlobalFilters(new GlobalExceptionFilter());
 
     // Apply security middleware
-    app.use(
-      cookieParser(
-        configService.get('COOKIE_SECRET', configService.get('JWT_SECRET')),
-      ),
-    );
+    // app.use(
+    //   cookieParser(
+    //     configService.get('COOKIE_SECRET', configService.get('JWT_SECRET')),
+    //   ),
+    // );
+    app.use(cookieParser());
 
     // Apply compression to reduce response size
     app.use(compression());
@@ -71,6 +72,12 @@ async function bootstrap() {
       }),
     );
 
+    // Set global prefix for all routes (optional)
+    const apiPrefix = configService.get<string>('API_PREFIX', 'api');
+    if (apiPrefix) {
+      app.setGlobalPrefix(apiPrefix);
+    }
+
     // Setup Swagger documentation (only for non-production environments)
     if (!isProduction) {
       const swaggerConfig = new DocumentBuilder()
@@ -89,12 +96,6 @@ async function bootstrap() {
       const document = SwaggerModule.createDocument(app, swaggerConfig);
       SwaggerModule.setup('api-docs', app, document);
       logger.log('Swagger documentation enabled at /api-docs');
-    }
-
-    // Set global prefix for all routes (optional)
-    const apiPrefix = configService.get<string>('API_PREFIX', 'api');
-    if (apiPrefix) {
-      app.setGlobalPrefix(apiPrefix);
     }
 
     // Start server

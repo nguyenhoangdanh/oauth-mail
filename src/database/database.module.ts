@@ -12,10 +12,10 @@ import { Logger } from '@nestjs/common';
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
         const logger = new Logger('DatabaseModule');
-        
+
         // Check if DATABASE_URL is provided (e.g., for deployment environments)
         const databaseUrl = configService.get<string>('DATABASE_URL');
-        
+
         if (databaseUrl) {
           logger.log('Using DATABASE_URL for connection');
           return {
@@ -25,14 +25,14 @@ import { Logger } from '@nestjs/common';
             migrations: [join(__dirname, './migrations/*{.ts,.js}')],
             synchronize: configService.get<boolean>('DB_SYNCHRONIZE', false),
             logging: configService.get<boolean>('DB_LOGGING', false),
-            ssl:false,
+            ssl: false,
             autoLoadEntities: true,
             keepConnectionAlive: true,
             retryAttempts: 5,
             retryDelay: 3000,
           };
         }
-        
+
         // Otherwise use individual connection parameters
         logger.log('Using individual database parameters for connection');
         return {

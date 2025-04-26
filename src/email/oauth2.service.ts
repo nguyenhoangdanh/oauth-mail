@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { OAuthCredential } from './entities/oauth-credential.entity';
+import { google } from 'googleapis';
 
 interface TokenResponse {
   access_token: string;
@@ -16,25 +17,34 @@ interface TokenResponse {
 @Injectable()
 export class OAuth2Service implements OnModuleInit {
   private readonly logger = new Logger(OAuth2Service.name);
-  private cachedTokens: Map<string, { token: string; expiresAt: number }> = new Map();
+  private oauthClient: any;
+  private cachedTokens: Map<string, { token: string; expiresAt: number }> =
+    new Map();
 
   constructor(
     private readonly configService: ConfigService,
     @InjectRepository(OAuthCredential)
     private readonly oauthRepository: Repository<OAuthCredential>,
-  ) {}
+  ) {
+    // Initialize OAuth client
+    this.oauthClient = new google.auth.OAuth2(
+      this.configService.get('GMAIL_CLIENT_ID'),
+      this.configService.get('GMAIL_CLIENT_SECRET'),
+      this.configService.get('GMAIL_REDIRECT_URI'),
+    );
+  }
 
   async onModuleInit() {
     // Initialize by loading stored credentials if available
     try {
-      const storedCredentials = await this.oauthRepository.findOne({ 
+      const storedCredentials = await this.oauthRepository.findOne({
         where: { provider: 'gmail', isActive: true },
-        order: { createdAt: 'DESC' } 
+        order: { createdAt: 'DESC' },
       });
-      
+
       if (storedCredentials) {
         this.logger.log('Found stored OAuth credentials for Gmail');
-        
+
         // Add to cache if not expired
         if (storedCredentials.expiresAt > new Date()) {
           this.cachedTokens.set('gmail-token', {
@@ -64,21 +74,42 @@ export class OAuth2Service implements OnModuleInit {
     // Try to get the refresh token from the database
     const credentials = await this.oauthRepository.findOne({
       where: { provider: 'gmail', isActive: true },
-      order: { createdAt: 'DESC' }
+      order: { createdAt: 'DESC' },
     });
 
+    console.log('credentials------------------------------->>>', credentials);
+
+    // Thêm kiểm tra và sử dụng refresh token từ environment nếu không có trong DB
     if (!credentials?.refreshToken) {
-      throw new Error('No refresh token available for Gmail. Please authenticate first.');
+      const envRefreshToken = this.configService.get<string>(
+        'GMAIL_REFRESH_TOKEN',
+      );
+
+      console.log(
+        'envRefreshToken------------------------------->>>',
+        envRefreshToken,
+      );
+      if (!envRefreshToken) {
+        throw new Error(
+          'No refresh token available for Gmail. Please authenticate first or set GMAIL_REFRESH_TOKEN environment variable.',
+        );
+      }
+
+      return this.refreshGmailToken(envRefreshToken);
     }
 
     // Refresh the token
     return this.refreshGmailToken(credentials.refreshToken);
   }
 
-  private async refreshGmailToken(storedRefreshToken?: string): Promise<string> {
+  private async refreshGmailToken(
+    storedRefreshToken?: string,
+  ): Promise<string> {
     const clientId = this.configService.get<string>('GMAIL_CLIENT_ID');
     const clientSecret = this.configService.get<string>('GMAIL_CLIENT_SECRET');
-    const refreshToken = storedRefreshToken || this.configService.get<string>('GMAIL_REFRESH_TOKEN');
+    const refreshToken =
+      storedRefreshToken ||
+      this.configService.get<string>('GMAIL_REFRESH_TOKEN');
 
     if (!clientId || !clientSecret || !refreshToken) {
       throw new Error(
@@ -120,9 +151,9 @@ export class OAuth2Service implements OnModuleInit {
 
       // Update stored credentials
       await this.updateStoredCredentials({
-        accessToken: data.access_token, 
+        accessToken: data.access_token,
         refreshToken,
-        expiresAt: new Date(expiresAt)
+        expiresAt: new Date(expiresAt),
       });
 
       this.logger.log('Successfully refreshed Gmail access token');
@@ -148,59 +179,86 @@ export class OAuth2Service implements OnModuleInit {
   }
 
   async exchangeCodeForTokens(code: string): Promise<void> {
-    const clientId = this.configService.get<string>('GMAIL_CLIENT_ID');
-    const clientSecret = this.configService.get<string>('GMAIL_CLIENT_SECRET');
-    const redirectUri = this.configService.get<string>('GMAIL_REDIRECT_URI');
-
     try {
-      const params = new URLSearchParams({
-        client_id: clientId,
-        client_secret: clientSecret,
-        code,
-        grant_type: 'authorization_code',
-        redirect_uri: redirectUri,
-      });
+      const { tokens } = await this.oauthClient.getToken(code);
 
-      const response = await fetch('https://oauth2.googleapis.com/token', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: params.toString(),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.text();
-        throw new Error(
-          `Failed to exchange code for tokens: ${response.status} ${errorData}`,
-        );
-      }
-
-      const data = await response.json() as TokenResponse;
-      const expiresAt = new Date(Date.now() + data.expires_in * 1000);
-
-      // Save tokens in database
-      await this.saveOAuthTokens({
-        accessToken: data.access_token,
-        refreshToken: data.refresh_token || '',
-        expiresAt,
-      });
-
-      // Update cache
-      this.cachedTokens.set('gmail-token', {
-        token: data.access_token,
-        expiresAt: expiresAt.getTime(),
-      });
-
-      this.logger.log('Successfully obtained OAuth tokens');
-    } catch (error) {
-      this.logger.error(
-        `Error exchanging code for tokens: ${error.message}`,
-        error.stack,
+      // Save in database
+      await this.oauthRepository.update(
+        { provider: 'gmail', isActive: true },
+        { isActive: false },
       );
+
+      const credential = this.oauthRepository.create({
+        provider: 'gmail',
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token,
+        expiresAt: new Date(tokens.expiry_date),
+        isActive: true,
+        metadata: { scope: tokens.scope },
+      });
+
+      await this.oauthRepository.save(credential);
+
+      this.logger.log('OAuth tokens saved successfully');
+    } catch (error) {
+      this.logger.error(`Failed to exchange code for tokens: ${error.message}`);
       throw error;
     }
   }
+
+  // const clientId = this.configService.get<string>('GMAIL_CLIENT_ID');
+  // const clientSecret = this.configService.get<string>('GMAIL_CLIENT_SECRET');
+  // const redirectUri = this.configService.get<string>('GMAIL_REDIRECT_URI');
+
+  // try {
+  //   const params = new URLSearchParams({
+  //     client_id: clientId,
+  //     client_secret: clientSecret,
+  //     code,
+  //     grant_type: 'authorization_code',
+  //     redirect_uri: redirectUri,
+  //   });
+
+  //   const response = await fetch('https://oauth2.googleapis.com/token', {
+  //     method: 'POST',
+  //     headers: {
+  //       'Content-Type': 'application/x-www-form-urlencoded',
+  //     },
+  //     body: params.toString(),
+  //   });
+
+  //   if (!response.ok) {
+  //     const errorData = await response.text();
+  //     throw new Error(
+  //       `Failed to exchange code for tokens: ${response.status} ${errorData}`,
+  //     );
+  //   }
+
+  //   const data = (await response.json()) as TokenResponse;
+  //   const expiresAt = new Date(Date.now() + data.expires_in * 1000);
+
+  //   // Save tokens in database
+  //   await this.saveOAuthTokens({
+  //     accessToken: data.access_token,
+  //     refreshToken: data.refresh_token || '',
+  //     expiresAt,
+  //   });
+
+  //   // Update cache
+  //   this.cachedTokens.set('gmail-token', {
+  //     token: data.access_token,
+  //     expiresAt: expiresAt.getTime(),
+  //   });
+
+  //   this.logger.log('Successfully obtained OAuth tokens');
+  // } catch (error) {
+  //   this.logger.error(
+  //     `Error exchanging code for tokens: ${error.message}`,
+  //     error.stack,
+  //   );
+  //   throw error;
+  // }
+  // }
 
   private async saveOAuthTokens(tokens: {
     accessToken: string;
@@ -211,7 +269,7 @@ export class OAuth2Service implements OnModuleInit {
       // Deactivate previous tokens
       await this.oauthRepository.update(
         { provider: 'gmail', isActive: true },
-        { isActive: false }
+        { isActive: false },
       );
 
       // Create new credentials
@@ -238,7 +296,7 @@ export class OAuth2Service implements OnModuleInit {
   }): Promise<void> {
     try {
       const credential = await this.oauthRepository.findOne({
-        where: { provider: 'gmail', isActive: true }
+        where: { provider: 'gmail', isActive: true },
       });
 
       if (credential) {
@@ -257,7 +315,7 @@ export class OAuth2Service implements OnModuleInit {
   async revokeToken(): Promise<boolean> {
     try {
       const credential = await this.oauthRepository.findOne({
-        where: { provider: 'gmail', isActive: true }
+        where: { provider: 'gmail', isActive: true },
       });
 
       if (!credential) {
@@ -272,12 +330,15 @@ export class OAuth2Service implements OnModuleInit {
         client_id: clientId,
       });
 
-      const response = await fetch(`https://oauth2.googleapis.com/revoke?${params.toString()}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
+      const response = await fetch(
+        `https://oauth2.googleapis.com/revoke?${params.toString()}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
         },
-      });
+      );
 
       if (!response.ok) {
         const errorData = await response.text();
@@ -287,7 +348,7 @@ export class OAuth2Service implements OnModuleInit {
       // Deactivate token in database regardless of revoke result
       credential.isActive = false;
       await this.oauthRepository.save(credential);
-      
+
       // Remove from cache
       this.cachedTokens.delete('gmail-token');
 

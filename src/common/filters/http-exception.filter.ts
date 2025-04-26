@@ -6,7 +6,6 @@ import {
   HttpException,
   HttpStatus,
   Logger,
-  InternalServerErrorException,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { ConfigService } from '@nestjs/config';
@@ -28,7 +27,8 @@ export class GlobalExceptionFilter implements ExceptionFilter {
   private readonly isProduction: boolean;
 
   constructor(private readonly configService?: ConfigService) {
-    this.isProduction = configService?.get('NODE_ENV') === 'production' || false;
+    this.isProduction =
+      configService?.get('NODE_ENV') === 'production' || false;
   }
 
   catch(exception: any, host: ArgumentsHost) {
@@ -44,18 +44,18 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     if (exception instanceof HttpException) {
       status = exception.getStatus();
       message = exception.getResponse();
-      
+
       // Extract error code if available
       if (typeof message === 'object' && message.code) {
         errorCode = message.code;
       }
     } else {
       status = HttpStatus.INTERNAL_SERVER_ERROR;
-      message = { 
+      message = {
         error: 'Internal Server Error',
-        message: 'An unexpected error occurred'
+        message: 'An unexpected error occurred',
       };
-      
+
       // Log the full error for server-side debugging
       this.logger.error(
         `Unhandled exception: ${request.method} ${request.url}`,

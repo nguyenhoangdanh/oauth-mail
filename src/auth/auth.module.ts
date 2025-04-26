@@ -1,10 +1,24 @@
 // src/auth/auth.module.ts
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
-import { ConfigModule, ConfigService } from '@nestjs/config';
 import { PassportModule } from '@nestjs/passport';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { AuthController } from './auth.controller';
+import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { LocalStrategy } from './strategies/local.strategy';
+import { GoogleStrategy } from './strategies/google.strategy';
+import { FacebookStrategy } from './strategies/facebook.strategy';
+import { GitHubStrategy } from './strategies/github.strategy';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { AdminGuard } from './guards/admin.guard';
+import { User } from '../users/entities/user.entity';
+import { UserOAuth } from 'src/users/entities/user-oauth.entity';
+import { Token } from 'src/users/entities/token.entity';
+import { Session } from 'src/users/entities/session.entity';
+import { UsersService } from 'src/users/user.service';
+import { EmailModule } from 'src/email/email.module';
 
 @Module({
   imports: [
@@ -19,8 +33,22 @@ import { AdminGuard } from './guards/admin.guard';
         },
       }),
     }),
+    TypeOrmModule.forFeature([User, UserOAuth, Token, Session]),
+    ConfigModule,
+    forwardRef(() => EmailModule),
   ],
-  providers: [JwtStrategy, AdminGuard],
-  exports: [JwtModule, AdminGuard],
+  controllers: [AuthController],
+  providers: [
+    AuthService,
+    UsersService,
+    JwtStrategy,
+    LocalStrategy,
+    GoogleStrategy,
+    FacebookStrategy,
+    GitHubStrategy,
+    JwtAuthGuard,
+    AdminGuard,
+  ],
+  exports: [AuthService, JwtModule, JwtAuthGuard, AdminGuard],
 })
 export class AuthModule {}

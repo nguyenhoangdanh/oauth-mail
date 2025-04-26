@@ -2,7 +2,7 @@ import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
 import { AdminGuard } from '../auth/guards/admin.guard';
-import { EmailLog } from './entities/email-log.entity';
+import { EmailLog, EmailStatus } from './entities/email-log.entity';
 import { EmailEvent } from './entities/email-event.entity';
 import { EmailStats } from './entities/email-stats.entity';
 import { EmailFiltersDto } from './dto/email-filters.dto';
@@ -51,22 +51,25 @@ export class EmailDashboardController {
         where: { createdAt: Between(start, end) },
       }),
       this.emailLogRepository.count({
-        where: { status: 'sent', createdAt: Between(start, end) },
+        where: { status: EmailStatus.SENT, createdAt: Between(start, end) },
       }),
       this.emailLogRepository.count({
-        where: { status: 'delivered', createdAt: Between(start, end) },
+        where: {
+          status: EmailStatus.DELIVERED,
+          createdAt: Between(start, end),
+        },
       }),
       this.emailLogRepository.count({
-        where: { status: 'opened', createdAt: Between(start, end) },
+        where: { status: EmailStatus.OPENED, createdAt: Between(start, end) },
       }),
       this.emailLogRepository.count({
-        where: { status: 'clicked', createdAt: Between(start, end) },
+        where: { status: EmailStatus.CLICKED, createdAt: Between(start, end) },
       }),
       this.emailLogRepository.count({
-        where: { status: 'bounced', createdAt: Between(start, end) },
+        where: { status: EmailStatus.BOUNCED, createdAt: Between(start, end) },
       }),
       this.emailLogRepository.count({
-        where: { status: 'failed', createdAt: Between(start, end) },
+        where: { status: EmailStatus.FAILED, createdAt: Between(start, end) },
       }),
     ]);
 
@@ -288,37 +291,37 @@ export class EmailDashboardController {
         await Promise.all([
           this.emailLogRepository.count({
             where: {
-              status: 'sent',
+              status: EmailStatus.SENT,
               sentAt: Between(dayStart, dayEnd),
             },
           }),
           this.emailLogRepository.count({
             where: {
-              status: 'delivered',
+              status: EmailStatus.DELIVERED,
               lastStatusAt: Between(dayStart, dayEnd),
             },
           }),
           this.emailLogRepository.count({
             where: {
-              status: 'opened',
+              status: EmailStatus.OPENED,
               openedAt: Between(dayStart, dayEnd),
             },
           }),
           this.emailLogRepository.count({
             where: {
-              status: 'clicked',
+              status: EmailStatus.CLICKED,
               clickedAt: Between(dayStart, dayEnd),
             },
           }),
           this.emailLogRepository.count({
             where: {
-              status: 'bounced',
+              status: EmailStatus.BOUNCED,
               lastStatusAt: Between(dayStart, dayEnd),
             },
           }),
           this.emailLogRepository.count({
             where: {
-              status: 'failed',
+              status: EmailStatus.FAILED,
               lastStatusAt: Between(dayStart, dayEnd),
             },
           }),
@@ -405,21 +408,21 @@ export class EmailDashboardController {
         this.emailLogRepository.count({
           where: {
             template,
-            status: 'delivered',
+            status: EmailStatus.DELIVERED,
             lastStatusAt: Between(dayStart, dayEnd),
           },
         }),
         this.emailLogRepository.count({
           where: {
             template,
-            status: 'opened',
+            status: EmailStatus.OPENED,
             openedAt: Between(dayStart, dayEnd),
           },
         }),
         this.emailLogRepository.count({
           where: {
             template,
-            status: 'clicked',
+            status: EmailStatus.CLICKED,
             clickedAt: Between(dayStart, dayEnd),
           },
         }),

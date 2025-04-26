@@ -17,15 +17,16 @@ export class AppCacheModule {
           useFactory: async (configService: ConfigService) => {
             const logger = new Logger('CacheModule');
             const isProduction = configService.get('NODE_ENV') === 'production';
-            const useRedis = configService.get('USE_REDIS') === 'true' || isProduction;
+            const useRedis =
+              configService.get('USE_REDIS') === 'true' || isProduction;
             const defaultTtl = configService.get('CACHE_TTL', 300) * 1000; // Convert to milliseconds
 
             if (useRedis) {
               logger.log('Configuring Redis cache store');
-              
+
               const host = configService.get('REDIS_HOST', 'localhost');
-              const port = configService.get('REDIS_PORT', 6379);
-              
+              const port = configService.get('REDIS_PORT', 6380);
+
               return {
                 isGlobal: true,
                 store: RedisStore,
@@ -38,7 +39,9 @@ export class AppCacheModule {
                   retryStrategy: (times: number) => {
                     // Exponential backoff for reconnection
                     const delay = Math.min(times * 100, 3000);
-                    logger.log(`Retrying Redis connection attempt ${times} in ${delay}ms`);
+                    logger.log(
+                      `Retrying Redis connection attempt ${times} in ${delay}ms`,
+                    );
                     return delay;
                   },
                   enableReadyCheck: true,
@@ -48,7 +51,7 @@ export class AppCacheModule {
             }
 
             logger.log('Configuring in-memory cache store');
-            
+
             return {
               isGlobal: true,
               ttl: defaultTtl,
@@ -83,7 +86,6 @@ export class AppCacheModule {
     };
   }
 }
-
 
 // // src/common/cache/cache.module.ts
 // import { DynamicModule, Module } from '@nestjs/common';

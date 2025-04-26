@@ -8,22 +8,13 @@ import * as Handlebars from 'handlebars';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 // import { SentMessageInfo } from 'nodemailer';
 import { v4 as uuidv4 } from 'uuid';
-import Bull from 'bull';
-import Queue from 'bull';
 import { OAuth2Service } from './oauth2.service';
-
-export interface EmailJob {
-  id: string;
-  to: string;
-  subject: string;
-  template: string;
-  context: any;
-  attempts: number;
-  status: 'pending' | 'sent' | 'failed';
-  error?: string;
-  sentAt?: Date;
-  messageId?: string;
-}
+import { EmailTemplate } from './entities/email-template.entity';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Like, Repository } from 'typeorm';
+import { Queue } from 'bullmq';
+import { EmailJob } from './interfaces/email-job.interface';
+import { InjectQueue } from '@nestjs/bullmq';
 
 export interface WebhookEvent {
   id: string;
@@ -51,15 +42,19 @@ export class NodemailerService implements IEmailService {
   private readonly appName: string;
   private readonly appUrl: string;
   private readonly fromEmail: string;
-  private readonly emailQueue: Queue<EmailJob>;
   private readonly emailJobs: Map<string, EmailJob> = new Map();
   private readonly webhookHandlers: Map<string, WebhookHandler[]> = new Map();
   private readonly MAX_RETRIES = 3;
+  // private worker: Worker;
 
   constructor(
     private readonly configService: ConfigService,
     private readonly eventEmitter: EventEmitter2,
     private readonly oauth2Service: OAuth2Service,
+    @InjectRepository(EmailTemplate)
+    private readonly templateRepository: Repository<EmailTemplate>,
+    @InjectQueue('email')
+    private readonly emailQueue: Queue,
   ) {
     // Initialize email configuration
     this.appName = this.configService.get<string>('APP_NAME', 'Your App');
@@ -69,69 +64,15 @@ export class NodemailerService implements IEmailService {
     );
     this.fromEmail = this.configService.get<string>(
       'EMAIL_FROM',
-      `"${this.appName}" <hoangdanh54317@gmail.com>`,
+      `"${this.appName}" <noreply@example.com>`,
     );
 
     // Set up templates directory
     this.templatesDir = path.join(__dirname, '../../templates/emails');
     this.loadTemplates();
 
-    // Initialize email queue
-    this.emailQueue = new Bull('email-queue', {
-      redis: {
-        host: this.configService.get<string>('REDIS_HOST', 'localhost'),
-        port: this.configService.get<number>('REDIS_PORT', 6379),
-      },
-      defaultJobOptions: {
-        attempts: this.MAX_RETRIES,
-        backoff: {
-          type: 'exponential',
-          delay: 1000,
-        },
-        removeOnComplete: true,
-        removeOnFail: false,
-      },
-    });
-
-    // Set up queue processor
-    this.emailQueue.process(async (job) => {
-      return this.processEmailJob(job.data);
-    });
-
-    // Handle completed jobs
-    this.emailQueue.on('completed', (job) => {
-      const emailJob = job.data;
-      this.logger.log(`Email job ${emailJob.id} completed successfully`);
-      this.updateJobStatus(emailJob.id, 'sent', {
-        sentAt: new Date(),
-        messageId: emailJob.messageId,
-      });
-      this.triggerWebhook('sent', {
-        id: uuidv4(),
-        event: 'sent',
-        emailId: emailJob.id,
-        recipient: emailJob.to,
-        timestamp: new Date(),
-      });
-    });
-
-    // Handle failed jobs
-    this.emailQueue.on('failed', (job, err) => {
-      const emailJob = job.data;
-      this.logger.error(`Email job ${emailJob.id} failed: ${err.message}`);
-
-      if (job.attemptsMade >= this.MAX_RETRIES) {
-        this.updateJobStatus(emailJob.id, 'failed', { error: err.message });
-        this.triggerWebhook('failed', {
-          id: uuidv4(),
-          event: 'failed',
-          emailId: emailJob.id,
-          recipient: emailJob.to,
-          timestamp: new Date(),
-          metadata: { error: err.message, attempts: job.attemptsMade },
-        });
-      }
-    });
+    // Create worker for processing emails
+    // this.setupWorker();
 
     // Create Nodemailer transporter with connection pool
     const useTestAccount =
@@ -152,6 +93,60 @@ export class NodemailerService implements IEmailService {
     this.registerWebhookEventType('complained');
     this.registerWebhookEventType('failed');
   }
+
+  // private setupWorker() {
+  //   const redisClient = new Redis({
+  //     host: this.configService.get<string>('REDIS_HOST', 'localhost'),
+  //     port: this.configService.get<number>('REDIS_PORT', 6380),
+  //     password: this.configService.get<string>('REDIS_PASSWORD'),
+  //     maxRetriesPerRequest: null,
+  //   });
+
+  //   this.worker = new Worker(
+  //     'email',
+  //     async (job) => {
+  //       return this.processEmailJob(job.data);
+  //     },
+  //     {
+  //       connection: redisClient,
+  //     },
+  //   );
+
+  //   this.worker.on('completed', (job) => {
+  //     const emailJob = job.data;
+  //     this.logger.log(`Email job ${emailJob.id} completed successfully`);
+  //     this.updateJobStatus(emailJob.id, 'sent', {
+  //       sentAt: new Date(),
+  //       messageId: emailJob.messageId,
+  //     });
+  //     this.triggerWebhook('sent', {
+  //       id: uuidv4(),
+  //       event: 'sent',
+  //       emailId: emailJob.id,
+  //       recipient: emailJob.to,
+  //       timestamp: new Date(),
+  //     });
+  //   });
+
+  //   this.worker.on('failed', (job, error) => {
+  //     if (!job) return;
+
+  //     const emailJob = job.data;
+  //     this.logger.error(`Email job ${emailJob.id} failed: ${error.message}`);
+
+  //     if (job.attemptsMade >= this.MAX_RETRIES) {
+  //       this.updateJobStatus(emailJob.id, 'failed', { error: error.message });
+  //       this.triggerWebhook('failed', {
+  //         id: uuidv4(),
+  //         event: 'failed',
+  //         emailId: emailJob.id,
+  //         recipient: emailJob.to,
+  //         timestamp: new Date(),
+  //         metadata: { error: error.message, attempts: job.attemptsMade },
+  //       });
+  //     }
+  //   });
+  // }
 
   // Implement IEmailService methods
   // Sửa các phương thức để trả về Promise<string>
@@ -350,7 +345,15 @@ export class NodemailerService implements IEmailService {
 
     this.emailJobs.set(emailId, emailJob);
 
-    await this.emailQueue.add(emailJob);
+    await this.emailQueue.add('send-email', emailJob, {
+      attempts: this.MAX_RETRIES,
+      backoff: {
+        type: 'exponential',
+        delay: 1000,
+      },
+      removeOnComplete: true,
+    });
+
     this.logger.log(`Email queued with ID: ${emailId}`);
 
     return emailId;
@@ -662,6 +665,109 @@ export class NodemailerService implements IEmailService {
       emailJob.template,
       emailJob.context,
     );
+  }
+
+  // Implémentation des méthodes manquantes pour satisfaire l'interface IEmailService
+  async getTemplates(filters?: {
+    isActive?: boolean;
+    category?: string;
+    search?: string;
+  }): Promise<EmailTemplate[]> {
+    try {
+      const where: any = {};
+
+      if (filters?.isActive !== undefined) {
+        where.isActive = filters.isActive;
+      }
+
+      if (filters?.category) {
+        where.category = filters.category;
+      }
+
+      if (filters?.search) {
+        where.name = Like(`%${filters.search}%`);
+      }
+
+      return await this.templateRepository.find({
+        where,
+        order: { updatedAt: 'DESC' },
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to get templates: ${error.message}`,
+        error.stack,
+      );
+      return [];
+    }
+  }
+
+  async saveTemplate(
+    name: string,
+    content: string,
+    data?: {
+      subject?: string;
+      description?: string;
+      isActive?: boolean;
+      version?: number;
+      lastEditor?: string;
+      previewText?: string;
+      category?: string;
+    },
+  ): Promise<EmailTemplate> {
+    try {
+      // Validate template syntax
+      try {
+        Handlebars.compile(content);
+      } catch (error) {
+        throw new Error(`Invalid template syntax: ${error.message}`);
+      }
+
+      // Check if template exists
+      let template = await this.templateRepository.findOne({ where: { name } });
+
+      if (template) {
+        // Update existing template
+        template.content = content;
+        if (data?.subject !== undefined) template.subject = data.subject;
+        if (data?.description !== undefined)
+          template.description = data.description;
+        if (data?.isActive !== undefined) template.isActive = data.isActive;
+        if (data?.lastEditor !== undefined)
+          template.lastEditor = data.lastEditor;
+        if (data?.previewText !== undefined)
+          template.previewText = data.previewText;
+        if (data?.category !== undefined) template.category = data.category;
+
+        // Increment version
+        template.version = (template.version || 0) + 1;
+      } else {
+        // Create new template
+        template = this.templateRepository.create({
+          name,
+          content,
+          subject: data?.subject,
+          description: data?.description,
+          isActive: data?.isActive !== undefined ? data.isActive : true,
+          version: data?.version || 1,
+          lastEditor: data?.lastEditor,
+          previewText: data?.previewText,
+          category: data?.category,
+        });
+      }
+
+      const savedTemplate = await this.templateRepository.save(template);
+
+      // Update template in memory cache
+      this.templates.set(name, Handlebars.compile(content));
+
+      return savedTemplate;
+    } catch (error) {
+      this.logger.error(
+        `Failed to save template: ${error.message}`,
+        error.stack,
+      );
+      throw error;
+    }
   }
 
   private getTemplate(name: string): HandlebarsTemplateDelegate | undefined {

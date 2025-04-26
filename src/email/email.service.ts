@@ -1,848 +1,656 @@
 // src/email/email.service.ts
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, Like } from 'typeorm';
-import { InjectQueue } from '@nestjs/bull';
+import { Like, Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { v4 as uuidv4 } from 'uuid';
-import { IEmailService } from './email.port';
-import { EmailLog } from './entities/email-log.entity';
-import { EmailTemplate } from './entities/email-template.entity';
-import { EmailJob, BulkEmailJob } from './interfaces/email-job.interface';
-import { EmailTrackingHelper } from './email.tracking.helper';
-import Queue from 'bull';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+import * as nodemailer from 'nodemailer';
 import * as Handlebars from 'handlebars';
-
-// Define common options interface for consistency
-interface EmailOptions {
-  priority?: number;
-  delay?: number;
-  campaignId?: string;
-  tags?: string[];
-  userId?: string;
-  isTest?: boolean;
-}
-
-// Extend for bulk emails
-interface BulkEmailOptions extends Omit<EmailOptions, 'delay' | 'priority'> {
-  batchSize?: number;
-}
+import { v4 as uuidv4 } from 'uuid';
+import { IEmailService, EmailOptions, LoginInfo } from './email.port';
+import { EmailLog, EmailStatus } from './entities/email-log.entity';
+import { EmailTemplate } from './entities/email-template.entity';
+// import { EVENT_EMITTER_TOKEN } from '../common/events/event-emitter.di-token';
+import { EventEmitter } from 'events';
+import { EVENT_EMITTER_TOKEN } from 'src/common/events/event-emitter.di-token';
 
 @Injectable()
-export class EmailService implements IEmailService, OnModuleInit {
+export class EmailService implements IEmailService {
   private readonly logger = new Logger(EmailService.name);
-  private readonly appName: string;
-  private readonly appUrl: string;
-  private readonly webhookHandlers: Map<string, Array<(data: any) => void>> =
-    new Map();
-  private readonly cachedTemplates: Map<
-    string,
-    Handlebars.TemplateDelegate<any>
-  > = new Map();
+  private transporter: nodemailer.Transporter;
+  private isProduction: boolean;
+  private defaultFromEmail: string;
+  private appUrl: string;
+  private templateCache: Map<string, Handlebars.TemplateDelegate> = new Map();
 
   constructor(
     @InjectRepository(EmailLog)
-    private readonly emailLogRepository: Repository<EmailLog>,
+    private emailLogRepository: Repository<EmailLog>,
     @InjectRepository(EmailTemplate)
-    private readonly templateRepository: Repository<EmailTemplate>,
-    @InjectQueue('email-queue')
-    private readonly emailQueue: Queue<EmailJob | BulkEmailJob>,
-    private readonly configService: ConfigService,
-    private readonly eventEmitter: EventEmitter2,
-    private readonly emailTrackingHelper: EmailTrackingHelper,
+    private emailTemplateRepository: Repository<EmailTemplate>,
+    @InjectQueue('email')
+    private emailQueue: Queue,
+    private configService: ConfigService,
+    @Inject(EVENT_EMITTER_TOKEN)
+    private eventEmitter: EventEmitter,
   ) {
-    this.appName = this.configService.get<string>('APP_NAME', 'SecureMail');
-    this.appUrl = this.configService.get<string>(
-      'APP_URL',
-      'http://localhost:3000',
+    this.isProduction = configService.get('NODE_ENV') === 'production';
+    this.defaultFromEmail = configService.get<string>(
+      'EMAIL_FROM',
+      'SecureMail <no-reply@securemail.com>',
     );
+    this.appUrl = configService.get<string>('APP_URL', 'http://localhost:3000');
 
-    // Initialize webhook event types
-    this.registerWebhookEventType('sent');
-    this.registerWebhookEventType('delivered');
-    this.registerWebhookEventType('opened');
-    this.registerWebhookEventType('clicked');
-    this.registerWebhookEventType('bounced');
-    this.registerWebhookEventType('complained');
-    this.registerWebhookEventType('failed');
-  }
+    // Initialize SMTP transporter based on environment
+    this.initializeTransporter();
 
-  /**
-   * Initialize service - load templates
-   */
-  async onModuleInit() {
-    try {
-      await this.loadTemplates();
-      this.logger.log('Email service initialized successfully');
-    } catch (error) {
+    // Initialize Handlebars helpers
+    this.registerHandlebarsHelpers();
+
+    // Register partials - this will create default partials if they don't exist
+    this.registerPartials().catch((error) => {
       this.logger.error(
-        `Failed to initialize email service: ${error.message}`,
+        `Failed to register partials: ${error.message}`,
         error.stack,
       );
-    }
+    });
   }
 
-  /**
-   * Load templates into memory cache
-   */
-  private async loadTemplates(): Promise<void> {
-    try {
-      const templates = await this.templateRepository.find({
-        where: { isActive: true },
+  private async initializeTransporter() {
+    if (this.isProduction) {
+      // Production configuration
+      this.transporter = nodemailer.createTransport({
+        host: this.configService.get<string>('SMTP_HOST'),
+        port: this.configService.get<number>('SMTP_PORT'),
+        secure: this.configService.get<boolean>('SMTP_SECURE', true),
+        auth: {
+          user: this.configService.get<string>('SMTP_USER'),
+          pass: this.configService.get<string>('SMTP_PASSWORD'),
+        },
+        pool: true, // Use pooled connection for better performance
+        maxConnections: 5,
+        maxMessages: 100,
       });
-
-      for (const template of templates) {
-        try {
-          this.cachedTemplates.set(
-            template.name,
-            Handlebars.compile(template.content),
-          );
-          this.logger.log(`Loaded template: ${template.name}`);
-        } catch (error) {
-          this.logger.error(
-            `Failed to compile template ${template.name}: ${error.message}`,
-          );
-        }
-      }
-
-      this.logger.log(`Loaded ${this.cachedTemplates.size} email templates`);
-    } catch (error) {
-      this.logger.error(
-        `Failed to load email templates: ${error.message}`,
-        error.stack,
+    } else {
+      // Development configuration - Use Ethereal for testing
+      const testAccount = await nodemailer.createTestAccount();
+      this.transporter = nodemailer.createTransport({
+        host: 'smtp.ethereal.email',
+        port: 587,
+        secure: false,
+        auth: {
+          user: testAccount.user,
+          pass: testAccount.pass,
+        },
+      });
+      this.logger.log(
+        `Development email account: ${testAccount.user} / ${testAccount.pass}`,
       );
     }
+
+    // Verify connection
+    this.transporter.verify((error) => {
+      if (error) {
+        this.logger.error('SMTP connection error:', error);
+      } else {
+        this.logger.log('SMTP server is ready to send emails');
+      }
+    });
   }
 
-  /**
-   * Send a verification email
-   */
-  async sendVerificationEmail(
-    to: string,
-    name: string | null,
-    token: string,
-  ): Promise<string> {
-    const verificationUrl = `${this.appUrl}/auth/verify-email/${token}`;
-    const context = {
-      name: name || 'User',
-      token,
-      verificationUrl,
-    };
-
-    return this.queueEmail(
-      to,
-      `Verify your email for ${this.appName}`,
-      'verification',
-      context,
+  private registerHandlebarsHelpers() {
+    // Add Handlebars helper for formatting dates
+    Handlebars.registerHelper(
+      'formatDate',
+      function (date: Date, format: string) {
+        // Simple date formatting implementation
+        // In a real app, use a library like date-fns or moment
+        console.log('format', format);
+        if (!date) return '';
+        try {
+          const d = new Date(date);
+          return d.toLocaleDateString();
+        } catch (e) {
+          console.log('error', e);
+          return date;
+        }
+      },
     );
+
+    // Add helper for conditional logic
+    Handlebars.registerHelper('ifCond', function (v1, operator, v2, options) {
+      switch (operator) {
+        case '==':
+          return v1 == v2 ? options.fn(this) : options.inverse(this);
+        case '===':
+          return v1 === v2 ? options.fn(this) : options.inverse(this);
+        case '!=':
+          return v1 != v2 ? options.fn(this) : options.inverse(this);
+        case '!==':
+          return v1 !== v2 ? options.fn(this) : options.inverse(this);
+        case '<':
+          return v1 < v2 ? options.fn(this) : options.inverse(this);
+        case '<=':
+          return v1 <= v2 ? options.fn(this) : options.inverse(this);
+        case '>':
+          return v1 > v2 ? options.fn(this) : options.inverse(this);
+        case '>=':
+          return v1 >= v2 ? options.fn(this) : options.inverse(this);
+        case '&&':
+          return v1 && v2 ? options.fn(this) : options.inverse(this);
+        case '||':
+          return v1 || v2 ? options.fn(this) : options.inverse(this);
+        default:
+          return options.inverse(this);
+      }
+    });
   }
 
   /**
-   * Send a password reset email
-   */
-  async sendPasswordResetEmail(
-    to: string,
-    name: string | null,
-    token: string,
-  ): Promise<string> {
-    const resetUrl = `${this.appUrl}/auth/reset-password/${token}`;
-    const context = {
-      name: name || 'User',
-      token,
-      resetUrl,
-    };
-
-    return this.queueEmail(
-      to,
-      `Reset your password for ${this.appName}`,
-      'password-reset',
-      context,
-    );
-  }
-
-  /**
-   * Send a welcome email
-   */
-  async sendWelcomeEmail(to: string, name: string | null): Promise<string> {
-    const loginUrl = `${this.appUrl}/auth/login`;
-    const context = {
-      name: name || 'User',
-      loginUrl,
-    };
-
-    return this.queueEmail(
-      to,
-      `Welcome to ${this.appName}!`,
-      'welcome',
-      context,
-    );
-  }
-
-  /**
-   * Send 2FA backup codes email
-   */
-  async sendTwoFactorBackupCodesEmail(
-    to: string,
-    name: string | null,
-    codes: string[],
-  ): Promise<string> {
-    const context = {
-      name: name || 'User',
-      codes,
-    };
-
-    return this.queueEmail(
-      to,
-      `Your 2FA backup codes for ${this.appName}`,
-      '2fa-backup-codes',
-      context,
-    );
-  }
-
-  /**
-   * Send login notification email
-   */
-  async sendLoginNotificationEmail(
-    to: string,
-    name: string | null,
-    device: string,
-    location: string,
-    time: Date,
-  ): Promise<string> {
-    const accountSettingsUrl = `${this.appUrl}/account/security`;
-    const context = {
-      name: name || 'User',
-      device,
-      location,
-      time: time.toLocaleString(),
-      accountSettingsUrl,
-    };
-
-    return this.queueEmail(
-      to,
-      `New login to your ${this.appName} account`,
-      'login-notification',
-      context,
-    );
-  }
-
-  /**
-   * Send login attempt notification email
-   */
-  async sendLoginAttemptNotificationEmail(
-    to: string,
-    name: string | null,
-    device: string,
-    location: string,
-    time: Date,
-  ): Promise<string> {
-    const resetPasswordUrl = `${this.appUrl}/auth/forgot-password`;
-    const context = {
-      name: name || 'User',
-      device,
-      location,
-      time: time.toLocaleString(),
-      resetPasswordUrl,
-    };
-
-    return this.queueEmail(
-      to,
-      `Unusual login attempt on your ${this.appName} account`,
-      'login-attempt',
-      context,
-    );
-  }
-
-  /**
-   * Queue a single email to be sent
+   * Queue an email to be sent
    */
   async queueEmail(
-    to: string,
+    to: string | string[],
     subject: string,
     template: string,
-    context: Record<string, any> = {},
+    context: Record<string, any>,
     options: EmailOptions = {},
   ): Promise<string> {
-    if (!to || typeof to !== 'string' || to.trim() === '') {
-      throw new Error('Email recipient is required');
-    }
-
-    // Check if template exists in cache or database
-    let templateExists = this.cachedTemplates.has(template);
-
-    if (!templateExists) {
-      // Try to fetch from database if not in cache
-      const templateRecord = await this.templateRepository.findOne({
-        where: { name: template, isActive: true },
-      });
-
-      templateExists = templateRecord !== null;
-
-      if (!templateExists) {
-        throw new Error(`Email template "${template}" not found or inactive`);
-      }
-
-      // Load template into cache for future use
-      await this.reloadTemplate(template);
-    }
-
-    // Generate unique ID for tracking
     const emailId = uuidv4();
 
-    // Create enhanced context with standard variables
-    const enhancedContext = {
-      ...context,
-      emailId,
-      appName: this.appName,
-      appUrl: this.appUrl,
-      currentYear: new Date().getFullYear(),
-    };
+    // Process recipients
+    const recipients = Array.isArray(to) ? to : [to];
 
-    // Create email log entry
-    await this.emailLogRepository.save({
-      emailId,
-      to: to.trim(),
-      name: context.name,
-      subject,
-      template,
-      context: enhancedContext,
-      status: 'pending',
-      campaignId: options.campaignId,
-      tags: options.tags,
-      userId: options.userId,
-      isTest: options.isTest || false,
-    });
-
-    // Add to queue with options
-    const jobOptions: any = {
-      attempts: 3,
-      backoff: {
-        type: 'exponential',
-        delay: 5000,
-      },
-      removeOnComplete: true,
-      removeOnFail: false,
-    };
-
-    // Add priority if specified
-    if (options.priority) {
-      jobOptions.priority = options.priority;
-    }
-
-    // Add delay if specified
-    if (options.delay) {
-      jobOptions.delay = options.delay;
-    }
-
-    // Add to queue
-    await this.emailQueue.add(
-      {
-        name: 'send-email',
-        id: emailId,
-        to: to.trim(),
+    try {
+      // Create log entry
+      const emailLog = this.emailLogRepository.create({
+        emailId,
+        to: Array.isArray(to) ? to.join(', ') : to,
         subject,
         template,
-        context: enhancedContext,
-        campaignId: options.campaignId,
-      },
-      jobOptions,
-    );
+        context,
+        status: EmailStatus.PENDING,
+        ...options,
+      });
+      await this.emailLogRepository.save(emailLog);
 
-    this.logger.log(`Email queued with ID: ${emailId}`);
+      // Add to processing queue
+      await this.emailQueue.add(
+        'send',
+        {
+          emailId,
+          to: recipients,
+          subject,
+          template,
+          context,
+          options: {
+            ...options,
+            from: options.from || this.defaultFromEmail,
+          },
+        },
+        {
+          attempts: 3,
+          backoff: {
+            type: 'exponential',
+            delay: 5000,
+          },
+          removeOnComplete: true,
+          delay: options.deliveryTime
+            ? new Date(options.deliveryTime).getTime() - Date.now()
+            : 0,
+        },
+      );
+
+      this.logger.log(`Email queued: ${emailId} to ${recipients.join(', ')}`);
+    } catch (error) {
+      this.logger.error(`Failed to queue email: ${error.message}`, error.stack);
+      throw new Error(`Failed to queue email: ${error.message}`);
+    }
+
     return emailId;
   }
 
   /**
-   * Send emails in bulk
+   * Send verification email
    */
-  async sendBulkEmails(
-    recipients: Array<{
-      email: string;
-      name?: string;
-      context?: Record<string, any>;
-    }>,
-    subject: string,
-    template: string,
-    context: Record<string, any> = {},
-    options: BulkEmailOptions = {},
-  ): Promise<{ batchId: string; queued: number }> {
-    // Validate inputs
-    if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
-      throw new Error('Recipients list is required and must not be empty');
-    }
-
-    // Check if template exists
-    const templateRecord = await this.templateRepository.findOne({
-      where: { name: template, isActive: true },
-    });
-
-    if (!templateRecord) {
-      throw new Error(`Email template "${template}" not found or inactive`);
-    }
-
-    // Generate batch ID
-    const batchId = options.campaignId || uuidv4();
-    const batchSize = options.batchSize || 100;
-
-    // Create enhanced context with standard variables
-    const enhancedContext = {
-      ...context,
-      appName: this.appName,
-      appUrl: this.appUrl,
-      batchId,
-      currentYear: new Date().getFullYear(),
-    };
-
-    // Split recipients into batches
-    const batches = [];
-    for (let i = 0; i < recipients.length; i += batchSize) {
-      batches.push(recipients.slice(i, i + batchSize));
-    }
-
-    // Queue each batch
-    let queued = 0;
-    for (let i = 0; i < batches.length; i++) {
-      const batch = batches[i];
-      await this.emailQueue.add(
-        {
-          name: 'send-bulk',
-          batchId,
-          recipients: batch,
-          template,
-          subject,
-          context: enhancedContext,
-          campaignId: options.campaignId,
-          tags: options.tags,
-          userId: options.userId,
-        },
-        {
-          attempts: 2,
-          backoff: {
-            type: 'fixed',
-            delay: 10000,
-          },
-          removeOnComplete: true,
-        },
-      );
-      queued += batch.length;
-    }
-
-    this.logger.log(
-      `Bulk email job queued with batch ID ${batchId} for ${queued} recipients`,
-    );
-    return { batchId, queued };
-  }
-
-  /**
-   * Get email status by ID
-   */
-  async getEmailStatus(emailId: string): Promise<EmailLog | null> {
-    return this.emailLogRepository.findOne({ where: { emailId } });
-  }
-
-  /**
-   * Get email log by ID
-   */
-  async getEmail(id: string): Promise<EmailLog | null> {
-    return this.emailLogRepository.findOne({ where: { id } });
-  }
-
-  /**
-   * Track campaign open
-   */
-  async trackCampaignOpen(
-    campaignId: string,
-    data: Record<string, any> = {},
-  ): Promise<void> {
-    if (!campaignId) {
-      this.logger.warn('Attempted to track campaign open without campaignId');
-      return;
-    }
-
-    // Emit campaign open event
-    this.eventEmitter.emit('campaign.opened', {
-      id: uuidv4(),
-      event: 'opened',
-      campaignId,
-      timestamp: new Date(),
-      metadata: data,
-    });
-  }
-
-  /**
-   * Register webhook handler
-   */
-  registerWebhook(event: string, handler: (data: any) => void): void {
-    if (!event || typeof handler !== 'function') {
-      this.logger.warn('Invalid webhook registration attempt');
-      return;
-    }
-
-    if (!this.webhookHandlers.has(event)) {
-      this.registerWebhookEventType(event);
-    }
-
-    const handlers = this.webhookHandlers.get(event) || [];
-    handlers.push(handler);
-    this.webhookHandlers.set(event, handlers);
-    this.logger.log(`Registered webhook handler for event: ${event}`);
-  }
-
-  /**
-   * Register webhook event type
-   */
-  registerWebhookEventType(event: string): void {
-    if (!event) {
-      this.logger.warn('Attempted to register empty webhook event type');
-      return;
-    }
-
-    if (!this.webhookHandlers.has(event)) {
-      this.webhookHandlers.set(event, []);
-    }
-  }
-
-  /**
-   * Trigger webhook
-   */
-  /**
-   * Trigger webhook
-   */
-  triggerWebhook(event: string, data: any): void {
-    if (!event || !data) {
-      this.logger.warn('Attempted to trigger webhook with invalid parameters');
-      return;
-    }
-
-    const handlers = this.webhookHandlers.get(event) || [];
-    handlers.forEach((handler) => {
-      try {
-        handler(data);
-      } catch (error) {
-        this.logger.error(
-          `Error in webhook handler for ${event}: ${error.message}`,
-          error.stack,
-        );
-      }
-    });
-
-    // Also emit as a NestJS event
-    this.eventEmitter.emit(`email.${event}`, data);
-  }
-
-  /**
-   * Create or update a template
-   */
-  async saveTemplate(
+  async sendVerificationEmail(
+    email: string,
     name: string,
-    content: string,
-    data: {
-      subject?: string;
-      description?: string;
-      isActive?: boolean;
-      version?: number;
-      lastEditor?: string;
-      previewText?: string;
-      category?: string;
-    } = {},
-  ): Promise<EmailTemplate> {
-    if (!name || !content) {
-      throw new Error('Template name and content are required');
-    }
+    token: string,
+  ): Promise<string> {
+    const verificationLink = `${this.appUrl}/auth/verify-email/${token}`;
 
-    // Validate template syntax
-    try {
-      Handlebars.compile(content);
-    } catch (error) {
-      throw new Error(`Invalid template syntax: ${error.message}`);
-    }
-
-    // Find existing template
-    let template = await this.templateRepository.findOne({ where: { name } });
-
-    if (template) {
-      // Update existing template
-      template.content = content;
-      if (data.subject !== undefined) template.subject = data.subject;
-      if (data.description !== undefined)
-        template.description = data.description;
-      if (data.isActive !== undefined) template.isActive = data.isActive;
-      if (data.version !== undefined) template.version = data.version;
-      if (data.lastEditor !== undefined) template.lastEditor = data.lastEditor;
-      if (data.previewText !== undefined)
-        template.previewText = data.previewText;
-      if (data.category !== undefined) template.category = data.category;
-
-      // Increment version
-      template.version = (template.version || 0) + 1;
-    } else {
-      // Create new template
-      template = this.templateRepository.create({
-        name,
-        content,
-        subject: data.subject,
-        description: data.description,
-        isActive: data.isActive !== undefined ? data.isActive : true,
-        version: data.version || 1,
-        lastEditor: data.lastEditor,
-        previewText: data.previewText,
-        category: data.category,
-      });
-    }
-
-    const savedTemplate = await this.templateRepository.save(template);
-
-    // Update template in cache
-    this.cachedTemplates.set(name, Handlebars.compile(content));
-
-    return savedTemplate;
-  }
-
-  /**
-   * Get email logs with filters
-   */
-  async getEmailLogs(
-    filters: Record<string, any> = {},
-    page = 1,
-    limit = 20,
-  ): Promise<{ data: EmailLog[]; total: number; page: number; pages: number }> {
-    const where: any = {};
-
-    // Process filters
-    if (filters.status) {
-      where.status = filters.status;
-    }
-
-    if (filters.template) {
-      where.template = filters.template;
-    }
-
-    if (filters.search) {
-      where.to = Like(`%${filters.search}%`);
-    }
-
-    if (filters.campaignId) {
-      where.campaignId = filters.campaignId;
-    }
-
-    if (filters.userId) {
-      where.userId = filters.userId;
-    }
-
-    if (filters.start && filters.end) {
-      where.createdAt = Between(new Date(filters.start), new Date(filters.end));
-    }
-
-    // Get data with pagination
-    const [data, total] = await this.emailLogRepository.findAndCount({
-      where,
-      skip: (page - 1) * limit,
-      take: limit,
-      order: { createdAt: 'DESC' },
-    });
-
-    return {
-      data,
-      total,
-      page,
-      pages: Math.ceil(total / limit),
-    };
-  }
-
-  /**
-   * Resend a failed email
-   */
-  async resendEmail(emailId: string): Promise<string | null> {
-    const emailLog = await this.emailLogRepository.findOne({
-      where: { emailId },
-    });
-
-    if (!emailLog) {
-      throw new Error('Email not found');
-    }
-
-    if (!['failed', 'bounced'].includes(emailLog.status)) {
-      throw new Error('Only failed or bounced emails can be resent');
-    }
-
-    // Create a new email with the same details
-    const newEmailId = await this.queueEmail(
-      emailLog.to,
-      emailLog.subject,
-      emailLog.template,
-      emailLog.context || {}, // Ensure context is not null
+    const emailId = uuidv4();
+    await this.queueEmail(
+      email,
+      'Verify Your Email',
+      'verification',
       {
-        tags: emailLog.tags || [],
-        campaignId: emailLog.campaignId,
-        userId: emailLog.userId,
+        name,
+        verificationLink,
+        appName: this.configService.get<string>('APP_NAME', 'SecureMail'),
+        supportEmail: this.configService.get<string>(
+          'SUPPORT_EMAIL',
+          'support@securemail.com',
+        ),
+      },
+      {
+        tags: ['verification', 'onboarding'],
+        trackOpens: true,
+        trackClicks: true,
       },
     );
-
-    // Update the original email log with reference to the resend
-    emailLog.resendId = newEmailId;
-    await this.emailLogRepository.save(emailLog);
-
-    return newEmailId;
+    return emailId;
   }
 
   /**
-   * Reload a template from the database into the cache
+   * Send password reset email
    */
-  private async reloadTemplate(templateName: string): Promise<void> {
+  async sendPasswordResetEmail(
+    email: string,
+    name: string,
+    token: string,
+  ): Promise<string> {
+    const resetLink = `${this.appUrl}/auth/reset-password/${token}`;
+    const emailId = uuidv4();
+    await this.queueEmail(
+      email,
+      'Reset Your Password',
+      'password-reset',
+      {
+        name,
+        resetLink,
+        appName: this.configService.get<string>('APP_NAME', 'SecureMail'),
+        supportEmail: this.configService.get<string>(
+          'SUPPORT_EMAIL',
+          'support@securemail.com',
+        ),
+        expiresIn: '1 hour',
+      },
+      {
+        tags: ['password-reset', 'security'],
+        priority: 'high',
+        trackOpens: true,
+        trackClicks: true,
+      },
+    );
+    return emailId;
+  }
+
+  /**
+   * Send welcome email
+   */
+  async sendWelcomeEmail(email: string, name: string): Promise<string> {
+    const emailId = uuidv4();
+    await this.queueEmail(
+      email,
+      'Welcome to SecureMail',
+      'welcome',
+      {
+        name,
+        loginUrl: `${this.appUrl}/auth/login`,
+        appName: this.configService.get<string>('APP_NAME', 'SecureMail'),
+        supportEmail: this.configService.get<string>(
+          'SUPPORT_EMAIL',
+          'support@securemail.com',
+        ),
+        dashboardUrl: `${this.appUrl}/dashboard`,
+        docsUrl: `${this.appUrl}/docs`,
+      },
+      {
+        tags: ['welcome', 'onboarding'],
+        trackOpens: true,
+        trackClicks: true,
+      },
+    );
+    return emailId;
+  }
+
+  /**
+   * Send login notification
+   */
+  async sendLoginNotification(
+    email: string,
+    name: string,
+    loginInfo: LoginInfo,
+  ): Promise<void> {
+    await this.queueEmail(
+      email,
+      'New Login to Your Account',
+      'login-notification',
+      {
+        name,
+        loginInfo: {
+          device: loginInfo.device || 'Unknown device',
+          location: loginInfo.location || 'Unknown location',
+          ipAddress: loginInfo.ipAddress || 'Unknown IP',
+          time: loginInfo.time || new Date(),
+          isNewDevice: loginInfo.isNewDevice || false,
+        },
+        securitySettingsUrl: `${this.appUrl}/settings/security`,
+        appName: this.configService.get<string>('APP_NAME', 'SecureMail'),
+        supportEmail: this.configService.get<string>(
+          'SUPPORT_EMAIL',
+          'support@securemail.com',
+        ),
+      },
+      {
+        tags: ['security', 'login-notification'],
+        priority: loginInfo.isNewDevice ? 'high' : 'normal',
+        trackOpens: true,
+      },
+    );
+  }
+
+  /**
+   * Send magic link email
+   * @param email User's email address
+   * @param name User's name
+   * @param token Magic link token
+   */
+  async sendMagicLinkEmail(
+    email: string,
+    name: string,
+    token: string,
+  ): Promise<void> {
+    const magicLink = `${this.appUrl}/auth/verify-magic-link/${token}`;
+
+    await this.queueEmail(
+      email,
+      'Sign In to Your Account',
+      'magic-link',
+      {
+        name,
+        magicLink,
+        expiresIn: '15 minutes',
+        appName: this.configService.get<string>('APP_NAME', 'SecureMail'),
+        supportEmail: this.configService.get<string>(
+          'SUPPORT_EMAIL',
+          'support@securemail.com',
+        ),
+      },
+      {
+        tags: ['magic-link', 'login'],
+        priority: 'high',
+        trackOpens: true,
+        trackClicks: true,
+      },
+    );
+  }
+
+  // Add this method to the EmailService class in email.service.ts
+
+  /**
+   * Register Handlebars partials from database
+   */
+  private async registerPartials(): Promise<void> {
     try {
-      const template = await this.templateRepository.findOne({
-        where: { name: templateName },
+      // Find all email templates that are meant to be partials (name starts with 'partial-')
+      const partials = await this.emailTemplateRepository.find({
+        where: {
+          name: Like('partial-%'),
+          isActive: true,
+        },
       });
 
-      if (template) {
-        this.cachedTemplates.set(
-          template.name,
-          Handlebars.compile(template.content),
-        );
-        this.logger.log(`Reloaded template: ${template.name}`);
+      if (partials.length === 0) {
+        // Create default partials if none exist
+        await this.createDefaultPartials();
+
+        // Fetch the newly created partials
+        const newPartials = await this.emailTemplateRepository.find({
+          where: {
+            name: Like('partial-%'),
+            isActive: true,
+          },
+        });
+
+        // Register the newly created partials
+        for (const partial of newPartials) {
+          const partialName = partial.name.replace('partial-', '');
+          Handlebars.registerPartial(partialName, partial.content);
+          this.logger.log(`Registered partial: ${partialName}`);
+        }
+      } else {
+        // Register existing partials
+        for (const partial of partials) {
+          const partialName = partial.name.replace('partial-', '');
+          Handlebars.registerPartial(partialName, partial.content);
+          this.logger.log(`Registered partial: ${partialName}`);
+        }
       }
     } catch (error) {
       this.logger.error(
-        `Failed to reload template: ${error.message}`,
+        `Failed to register partials: ${error.message}`,
         error.stack,
       );
     }
   }
 
   /**
-   * Get all templates with optional filters
+   * Create default header and footer partials
    */
-  async getTemplates(
-    filters: {
-      isActive?: boolean;
-      category?: string;
-      search?: string;
-    } = {},
-  ): Promise<EmailTemplate[]> {
-    const where: any = {};
+  private async createDefaultPartials(): Promise<void> {
+    try {
+      // Create header partial
+      const headerTemplate = this.emailTemplateRepository.create({
+        name: 'partial-header',
+        content: `<header style="background-color: #f8f9fa; padding: 20px; text-align: center; border-bottom: 1px solid #e9ecef;">
+  <h2>{{appName}}</h2>
+</header>`,
+        description: 'Default header partial for emails',
+        isActive: true,
+        version: 1,
+        category: 'system',
+      });
 
-    if (filters.isActive !== undefined) {
-      where.isActive = filters.isActive;
+      // Create footer partial
+      const footerTemplate = this.emailTemplateRepository.create({
+        name: 'partial-footer',
+        content: `<footer style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e9ecef; text-align: center; color: #6c757d; font-size: 0.9em;">
+  <p>© {{currentYear}} {{appName}}. All rights reserved.</p>
+  <p>If you have any questions, please contact us.</p>
+</footer>`,
+        description: 'Default footer partial for emails',
+        isActive: true,
+        version: 1,
+        category: 'system',
+      });
+
+      await this.emailTemplateRepository.save([headerTemplate, footerTemplate]);
+      this.logger.log('Created default email partials');
+    } catch (error) {
+      this.logger.error(
+        `Failed to create default partials: ${error.message}`,
+        error.stack,
+      );
     }
-
-    if (filters.category) {
-      where.category = filters.category;
-    }
-
-    if (filters.search) {
-      where.name = Like(`%${filters.search}%`);
-    }
-
-    return this.templateRepository.find({
-      where,
-      order: { updatedAt: 'DESC' },
-    });
   }
 
   /**
-   * Delete a template by name
+   * Get template content and compile with Handlebars
+   * @param templateName Name of the template
+   * @param context Data to inject into template
+   * @returns Compiled HTML content
    */
-  async deleteTemplate(name: string): Promise<boolean> {
-    if (!name) {
-      throw new Error('Template name is required');
+  private async compileTemplate(
+    templateName: string,
+    context: Record<string, any>,
+  ): Promise<string> {
+    try {
+      // Check template cache first
+      if (!this.templateCache.has(templateName)) {
+        // Get template from database
+        const templateEntity = await this.emailTemplateRepository.findOne({
+          where: { name: templateName, isActive: true },
+        });
+
+        if (!templateEntity) {
+          throw new Error(
+            `Email template "${templateName}" not found or inactive`,
+          );
+        }
+
+        // Make sure partials are registered before compiling
+        await this.registerPartials();
+
+        // Parse with Handlebars and cache
+        const template = Handlebars.compile(templateEntity.content);
+        this.templateCache.set(templateName, template);
+      }
+
+      // Get template from cache
+      const template = this.templateCache.get(templateName);
+
+      // Add common context variables
+      const fullContext = {
+        ...context,
+        appName: this.configService.get<string>('APP_NAME', 'SecureMail'),
+        currentYear: new Date().getFullYear(),
+        appUrl: this.appUrl,
+      };
+
+      // Compile and return HTML
+      return template(fullContext);
+    } catch (error) {
+      // If the error is about missing partials, try to fix it
+      if (
+        error.message &&
+        error.message.includes('partial') &&
+        error.message.includes('not found')
+      ) {
+        this.logger.warn(
+          `Missing partial detected: ${error.message}. Attempting recovery...`,
+        );
+
+        // Force reregister of partials and clear template cache
+        await this.registerPartials();
+        this.templateCache.delete(templateName);
+
+        // Try again one more time
+        return this.compileTemplate(templateName, context);
+      }
+
+      this.logger.error(
+        `Template compilation error: ${error.message}`,
+        error.stack,
+      );
+      throw new Error(`Failed to compile email template: ${error.message}`);
     }
-
-    // Check if template exists first
-    const template = await this.templateRepository.findOne({ where: { name } });
-    if (!template) {
-      return false; // Template doesn't exist
-    }
-
-    const result = await this.templateRepository.delete({ name });
-
-    if (result.affected && result.affected > 0) {
-      // Remove from cache
-      this.cachedTemplates.delete(name);
-      return true;
-    }
-
-    return false;
   }
 
   /**
-   * Get analytics for sent emails
+   * Process and send an email directly (called from queue processor)
+   * @param data Email data from queue
    */
-  async getEmailAnalytics(
-    startDate: Date,
-    endDate: Date,
-    filters: { campaignId?: string; template?: string; userId?: string } = {},
-  ): Promise<any> {
-    if (!startDate || !endDate) {
-      throw new Error('Start and end dates are required');
+  async processQueuedEmail(data: any): Promise<void> {
+    const { emailId, to, subject, template, context, options } = data;
+
+    try {
+      // Update status to processing
+      await this.emailLogRepository.update(
+        { emailId },
+        {
+          status: EmailStatus.PROCESSING,
+          attempts: () => '"attempts" + 1',
+        },
+      );
+
+      // Compile template
+      const html = await this.compileTemplate(template, context);
+
+      // Prepare mail options
+      const mailOptions: nodemailer.SendMailOptions = {
+        from: options.from || this.defaultFromEmail,
+        to,
+        subject,
+        html,
+        ...options,
+      };
+
+      // Add tracking pixel if enabled
+      if (options.trackOpens) {
+        // Add tracking pixel
+        mailOptions.html += `<img src="${this.appUrl}/api/email/track/${emailId}/open" width="1" height="1" alt="" style="display:none">`;
+      }
+
+      // Track links if enabled
+      if (options.trackClicks && mailOptions.html) {
+        // Replace all links with tracking links
+        // This is a simplified implementation - a production version would use an HTML parser
+        if (typeof mailOptions.html === 'string') {
+          mailOptions.html = mailOptions.html.replace(
+            /<a\s+(?:[^>]*?\s+)?href=(["'])(.*?)\1/gi,
+            (match, quote, url) => {
+              // Skip tracking for unsubscribe and anchor links
+              if (url.startsWith('#') || url.includes('unsubscribe')) {
+                return match;
+              }
+              return `<a href="${this.appUrl}/api/email/track/${emailId}/click?url=${encodeURIComponent(url)}"`;
+            },
+          );
+        }
+      }
+
+      // Send email
+      const result = await this.transporter.sendMail(mailOptions);
+
+      // Update email log with success
+      await this.emailLogRepository.update(
+        { emailId },
+        {
+          status: EmailStatus.SENT,
+          messageId: result.messageId,
+          sentAt: new Date(),
+          lastStatusAt: new Date(),
+        },
+      );
+
+      // Emit event for webhooks
+      this.eventEmitter.emit('email.sent', {
+        emailId,
+        to,
+        subject,
+        template,
+        messageId: result.messageId,
+      });
+
+      this.logger.log(
+        `Email sent: ${emailId} to ${to} with message ID ${result.messageId}`,
+      );
+
+      // Log preview URL for development
+      if (!this.isProduction && result.preview) {
+        this.logger.log(`Email preview URL: ${result.preview}`);
+      }
+    } catch (error) {
+      // Update email log with error
+      await this.emailLogRepository.update(
+        { emailId },
+        {
+          status: EmailStatus.FAILED,
+          error: error.message,
+          lastStatusAt: new Date(),
+        },
+      );
+
+      this.logger.error(
+        `Failed to send email ${emailId}: ${error.message}`,
+        error.stack,
+      );
+
+      // Emit event for webhooks
+      this.eventEmitter.emit('email.failed', {
+        emailId,
+        to,
+        subject,
+        template,
+        error: error.message,
+      });
+
+      // Rethrow error for the queue to handle retries
+      throw error;
     }
-
-    const where: any = {
-      createdAt: Between(startDate, endDate),
-    };
-
-    if (filters.campaignId) {
-      where.campaignId = filters.campaignId;
-    }
-
-    if (filters.template) {
-      where.template = filters.template;
-    }
-
-    if (filters.userId) {
-      where.userId = filters.userId;
-    }
-
-    // Get total counts
-    const [total, sent, delivered, opened, clicked, bounced, failed] =
-      await Promise.all([
-        this.emailLogRepository.count({ where }),
-        this.emailLogRepository.count({ where: { ...where, status: 'sent' } }),
-        this.emailLogRepository.count({
-          where: { ...where, status: 'delivered' },
-        }),
-        this.emailLogRepository.count({
-          where: { ...where, status: 'opened' },
-        }),
-        this.emailLogRepository.count({
-          where: { ...where, status: 'clicked' },
-        }),
-        this.emailLogRepository.count({
-          where: { ...where, status: 'bounced' },
-        }),
-        this.emailLogRepository.count({
-          where: { ...where, status: 'failed' },
-        }),
-      ]);
-
-    // Calculate rates
-    const deliveryRate = total > 0 ? (delivered / total) * 100 : 0;
-    const openRate = delivered > 0 ? (opened / delivered) * 100 : 0;
-    const clickRate = opened > 0 ? (clicked / opened) * 100 : 0;
-    const bounceRate = total > 0 ? (bounced / total) * 100 : 0;
-    const failureRate = total > 0 ? (failed / total) * 100 : 0;
-
-    return {
-      period: {
-        start: startDate,
-        end: endDate,
-      },
-      metrics: {
-        total,
-        sent,
-        delivered,
-        opened,
-        clicked,
-        bounced,
-        failed,
-      },
-      rates: {
-        delivery: parseFloat(deliveryRate.toFixed(2)),
-        open: parseFloat(openRate.toFixed(2)),
-        click: parseFloat(clickRate.toFixed(2)),
-        bounce: parseFloat(bounceRate.toFixed(2)),
-        failure: parseFloat(failureRate.toFixed(2)),
-      },
-    };
   }
 }

@@ -87,7 +87,10 @@ export class SecurityMiddleware implements NestMiddleware {
 
     // Configure cookie parser
     this.cookieParser = cookieParser(
-      this.configService.get('COOKIE_SECRET', this.configService.get('JWT_SECRET')),
+      this.configService.get(
+        'COOKIE_SECRET',
+        this.configService.get('JWT_SECRET'),
+      ),
     );
   }
 

@@ -1,12 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { IEmailService } from './email.port';
+import { IEmailService, LoginInfo } from './email.port';
 import { v4 as uuidv4 } from 'uuid';
+import { EmailTemplate } from './entities/email-template.entity';
+import { EmailStatus } from './entities/email-log.entity';
 
 @Injectable()
 export class ConsoleEmailService implements IEmailService {
   private readonly logger = new Logger(ConsoleEmailService.name);
-  private readonly webhookHandlers: Map<string, Array<(data: any) => void>> = new Map();
-
+  private readonly webhookHandlers: Map<string, Array<(data: any) => void>> =
+    new Map();
+  private readonly emailLogs: Map<string, any> = new Map();
+  private readonly templates: Map<string, EmailTemplate> = new Map();
   async sendVerificationEmail(
     to: string,
     name: string | null,
@@ -58,6 +62,21 @@ export class ConsoleEmailService implements IEmailService {
     return uuidv4();
   }
 
+  async sendLoginNotification(
+    email: string,
+    name: string,
+    loginInfo: LoginInfo,
+  ): Promise<void> {
+    this.logger.log(`
+      [Email] Login Notification
+      To: ${email}
+      Name: ${name || 'User'}
+      Device: ${loginInfo.device || 'Unknown'}
+      Location: ${loginInfo.location || 'Unknown'}
+      Time: ${loginInfo.time?.toLocaleString() || new Date().toLocaleString()}
+    `);
+  }
+
   async sendLoginNotificationEmail(
     to: string,
     name: string | null,
@@ -98,8 +117,8 @@ export class ConsoleEmailService implements IEmailService {
     to: string,
     subject: string,
     template: string,
-    context?: Record<string, any>,
-    options?: any
+    // context?: Record<string, any>,
+    // options?: any,
   ): Promise<string> {
     this.logger.log(`
       [Email] Queued Email
@@ -111,11 +130,15 @@ export class ConsoleEmailService implements IEmailService {
   }
 
   async sendBulkEmails(
-    recipients: Array<{ email: string; name?: string; context?: Record<string, any> }>,
+    recipients: Array<{
+      email: string;
+      name?: string;
+      context?: Record<string, any>;
+    }>,
     subject: string,
     template: string,
-    context?: Record<string, any>,
-    options?: any
+    // context?: Record<string, any>,
+    // options?: any,
   ): Promise<{ batchId: string; queued: number }> {
     this.logger.log(`
       [Email] Bulk Email
@@ -129,7 +152,7 @@ export class ConsoleEmailService implements IEmailService {
   async getEmailStatus(emailId: string): Promise<any> {
     return Promise.resolve({
       id: emailId,
-      status: 'sent', // Mock status for console service
+      status: EmailStatus.SENT,
     });
   }
 
@@ -151,14 +174,80 @@ export class ConsoleEmailService implements IEmailService {
       this.logger.warn('Invalid webhook registration attempt');
       return;
     }
-  
+
     if (!this.webhookHandlers.has(event)) {
       this.webhookHandlers.set(event, []);
     }
-  
+
     const handlers = this.webhookHandlers.get(event) || [];
     handlers.push(handler);
     this.webhookHandlers.set(event, handlers);
     this.logger.log(`Registered webhook handler for event: ${event}`);
+  }
+
+  // Implémentation des méthodes manquantes
+  async getTemplates(filters?: {
+    isActive?: boolean;
+    category?: string;
+    search?: string;
+  }): Promise<EmailTemplate[]> {
+    // Simuler la récupération des templates
+    this.logger.log(
+      `[Console] Get templates with filters: ${JSON.stringify(filters || {})}`,
+    );
+    return Array.from(this.templates.values());
+  }
+
+  async saveTemplate(
+    name: string,
+    content: string,
+    data?: {
+      subject?: string;
+      description?: string;
+      isActive?: boolean;
+      version?: number;
+      lastEditor?: string;
+      previewText?: string;
+      category?: string;
+    },
+  ): Promise<EmailTemplate> {
+    this.logger.log(`[Console] Save template "${name}"`);
+
+    const template: EmailTemplate = {
+      id: uuidv4(),
+      name,
+      content,
+      subject: data?.subject,
+      description: data?.description,
+      isActive: data?.isActive !== undefined ? data?.isActive : true,
+      version: data?.version || 1,
+      lastEditor: data?.lastEditor,
+      previewText: data?.previewText,
+      category: data?.category,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    this.templates.set(name, template);
+    return template;
+  }
+
+  // Méthode utilitaire pour enregistrer un email
+  private logEmail(
+    id: string,
+    to: string,
+    subject: string,
+    template: string,
+    extraData: Record<string, any> = {},
+  ): void {
+    this.emailLogs.set(id, {
+      id,
+      to,
+      subject,
+      template,
+      status: 'sent',
+      sentAt: new Date(),
+      ...extraData,
+    });
   }
 }

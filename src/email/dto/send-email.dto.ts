@@ -1,162 +1,310 @@
 // src/email/dto/send-email.dto.ts
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { ApiProperty } from '@nestjs/swagger';
 import {
   IsEmail,
   IsNotEmpty,
   IsString,
   IsOptional,
   IsObject,
-  IsNumber,
   IsArray,
+  IsBoolean,
   ValidateNested,
+  IsDateString,
 } from 'class-validator';
+import { Type } from 'class-transformer';
+import { EmailOptions } from '../email.port';
 
-export class SendEmailDto {
-  @ApiProperty({ description: 'Email recipient address' })
-  @IsEmail()
-  @IsNotEmpty()
-  to: string;
-
-  @ApiProperty({ description: 'Email subject' })
+// Define EmailAttachmentDto first
+export class EmailAttachmentDto {
+  @ApiProperty()
   @IsString()
   @IsNotEmpty()
-  subject: string;
+  filename: string;
 
-  @ApiProperty({ description: 'Email template name to use' })
+  @ApiProperty()
   @IsString()
   @IsNotEmpty()
-  template: string;
+  content: string;
 
-  @ApiProperty({ description: 'Template context data' })
-  @IsObject()
-  @IsNotEmpty()
-  context: Record<string, any>;
-
-  @ApiPropertyOptional({ description: 'Optional name of recipient' })
+  @ApiProperty({ required: false })
   @IsString()
   @IsOptional()
-  name?: string;
+  contentType?: string;
 
-  @ApiPropertyOptional()
+  @ApiProperty({ required: false })
+  @IsString()
   @IsOptional()
-  @IsNumber()
-  priority?: number;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsNumber()
-  delay?: number;
+  cid?: string;
 }
 
-export class VerificationEmailDto {
-  @ApiProperty({ description: 'Email recipient address' })
-  @IsEmail()
-  @IsNotEmpty()
-  to: string;
-
-  @ApiPropertyOptional({ description: 'Optional name of recipient' })
+// Define EmailOptionsDto second
+export class EmailOptionsDto implements Partial<EmailOptions> {
+  @ApiProperty({ required: false })
   @IsString()
   @IsOptional()
-  name?: string;
+  from?: string;
 
-  @ApiProperty({ description: 'Verification token' })
-  @IsString()
-  @IsNotEmpty()
-  token: string;
-}
-
-export class PasswordResetEmailDto {
-  @ApiProperty({ description: 'Email recipient address' })
-  @IsEmail()
-  @IsNotEmpty()
-  to: string;
-
-  @ApiPropertyOptional({ description: 'Optional name of recipient' })
-  @IsString()
+  @ApiProperty({ required: false })
+  @IsEmail({}, { each: true })
   @IsOptional()
-  name?: string;
+  cc?: string | string[];
 
-  @ApiProperty({ description: 'Password reset token' })
-  @IsString()
-  @IsNotEmpty()
-  token: string;
-}
-
-// Define a recipient sub-class for type validation
-class RecipientDto {
-  @ApiProperty({ description: 'Recipient email address' })
-  @IsEmail()
-  @IsNotEmpty()
-  email: string;
-
-  @ApiPropertyOptional({ description: 'Optional recipient name' })
-  @IsString()
+  @ApiProperty({ required: false })
+  @IsEmail({}, { each: true })
   @IsOptional()
-  name?: string;
+  bcc?: string | string[];
 
-  @ApiPropertyOptional({ description: 'Optional recipient-specific context' })
-  @IsObject()
-  @IsOptional()
-  context?: Record<string, any>;
-}
-
-export class BulkEmailDto {
-  @ApiProperty({ description: 'List of recipients', type: [RecipientDto] })
+  @ApiProperty({ required: false })
   @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => RecipientDto)
-  recipients: RecipientDto[];
-
-  @ApiProperty({ description: 'Email subject' })
-  @IsString()
-  @IsNotEmpty()
-  subject: string;
-
-  @ApiProperty({ description: 'Email template name to use' })
-  @IsString()
-  @IsNotEmpty()
-  template: string;
-
-  @ApiPropertyOptional({ description: 'Global template context data' })
-  @IsObject()
   @IsOptional()
-  context?: Record<string, any>;
+  @ValidateNested({ each: true })
+  @Type(() => EmailAttachmentDto)
+  attachments?: EmailAttachmentDto[];
 
-  @ApiPropertyOptional({ description: 'Campaign ID for tracking' })
+  @ApiProperty({ required: false })
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  tags?: string[];
+
+  @ApiProperty({ required: false })
   @IsString()
   @IsOptional()
   campaignId?: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsNumber()
-  priority?: number;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsNumber()
-  delay?: number;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsNumber()
-  batchSize?: number;
-}
-
-export class WelcomeEmailDto {
-  @ApiProperty({
-    description: 'Email address of the recipient',
-    example: 'user@example.com',
-  })
-  @IsEmail()
-  to: string;
-
-  @ApiPropertyOptional({
-    description: 'Name of the recipient',
-    example: 'John Doe',
-  })
+  @ApiProperty({ required: false })
   @IsString()
   @IsOptional()
-  name?: string;
+  batchId?: string;
+
+  @ApiProperty({ required: false })
+  @IsBoolean()
+  @IsOptional()
+  trackOpens?: boolean;
+
+  @ApiProperty({ required: false })
+  @IsBoolean()
+  @IsOptional()
+  trackClicks?: boolean;
+
+  @ApiProperty({ required: false })
+  @IsDateString()
+  @IsOptional()
+  deliveryTime?: Date;
+
+  @ApiProperty({ required: false })
+  @IsString()
+  @IsOptional()
+  replyTo?: string;
 }
+
+// Define SendEmailDto last, as it depends on EmailOptionsDto
+export class SendEmailDto {
+  @ApiProperty({
+    description: 'Recipient email address or addresses',
+    example: 'user@example.com',
+  })
+  @IsEmail({}, { each: true })
+  @IsOptional()
+  to?: string | string[];
+
+  @ApiProperty({
+    description: 'Email subject',
+    example: 'Welcome to SecureMail',
+  })
+  @IsString()
+  @IsNotEmpty()
+  subject: string;
+
+  @ApiProperty({
+    description: 'Email template name',
+    example: 'welcome',
+  })
+  @IsString()
+  @IsNotEmpty()
+  template: string;
+
+  @ApiProperty({
+    description: 'Template context variables',
+    example: {
+      name: 'John Doe',
+      activationLink: 'https://example.com/activate/token',
+    },
+  })
+  @IsObject()
+  @IsOptional()
+  context?: Record<string, any>;
+
+  @ApiProperty({
+    description: 'Additional email options',
+    required: false,
+  })
+  @IsOptional()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => EmailOptionsDto)
+  options?: EmailOptionsDto;
+}
+
+// // src/email/dto/send-email.dto.ts
+// import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+// import { Type } from 'class-transformer';
+// import {
+//   IsEmail,
+//   IsNotEmpty,
+//   IsString,
+//   IsOptional,
+//   IsObject,
+//   IsNumber,
+//   IsArray,
+//   ValidateNested,
+// } from 'class-validator';
+
+// export class SendEmailDto {
+//   @ApiProperty({ description: 'Email recipient address' })
+//   @IsEmail()
+//   @IsNotEmpty()
+//   to: string;
+
+//   @ApiProperty({ description: 'Email subject' })
+//   @IsString()
+//   @IsNotEmpty()
+//   subject: string;
+
+//   @ApiProperty({ description: 'Email template name to use' })
+//   @IsString()
+//   @IsNotEmpty()
+//   template: string;
+
+//   @ApiProperty({ description: 'Template context data' })
+//   @IsObject()
+//   @IsNotEmpty()
+//   context: Record<string, any>;
+
+//   @ApiPropertyOptional({ description: 'Optional name of recipient' })
+//   @IsString()
+//   @IsOptional()
+//   name?: string;
+
+//   @ApiPropertyOptional()
+//   @IsOptional()
+//   @IsNumber()
+//   priority?: number;
+
+//   @ApiPropertyOptional()
+//   @IsOptional()
+//   @IsNumber()
+//   delay?: number;
+// }
+
+// export class VerificationEmailDto {
+//   @ApiProperty({ description: 'Email recipient address' })
+//   @IsEmail()
+//   @IsNotEmpty()
+//   to: string;
+
+//   @ApiPropertyOptional({ description: 'Optional name of recipient' })
+//   @IsString()
+//   @IsOptional()
+//   name?: string;
+
+//   @ApiProperty({ description: 'Verification token' })
+//   @IsString()
+//   @IsNotEmpty()
+//   token: string;
+// }
+
+// export class PasswordResetEmailDto {
+//   @ApiProperty({ description: 'Email recipient address' })
+//   @IsEmail()
+//   @IsNotEmpty()
+//   to: string;
+
+//   @ApiPropertyOptional({ description: 'Optional name of recipient' })
+//   @IsString()
+//   @IsOptional()
+//   name?: string;
+
+//   @ApiProperty({ description: 'Password reset token' })
+//   @IsString()
+//   @IsNotEmpty()
+//   token: string;
+// }
+
+// // Define a recipient sub-class for type validation
+// class RecipientDto {
+//   @ApiProperty({ description: 'Recipient email address' })
+//   @IsEmail()
+//   @IsNotEmpty()
+//   email: string;
+
+//   @ApiPropertyOptional({ description: 'Optional recipient name' })
+//   @IsString()
+//   @IsOptional()
+//   name?: string;
+
+//   @ApiPropertyOptional({ description: 'Optional recipient-specific context' })
+//   @IsObject()
+//   @IsOptional()
+//   context?: Record<string, any>;
+// }
+
+// export class BulkEmailDto {
+//   @ApiProperty({ description: 'List of recipients', type: [RecipientDto] })
+//   @IsArray()
+//   @ValidateNested({ each: true })
+//   @Type(() => RecipientDto)
+//   recipients: RecipientDto[];
+
+//   @ApiProperty({ description: 'Email subject' })
+//   @IsString()
+//   @IsNotEmpty()
+//   subject: string;
+
+//   @ApiProperty({ description: 'Email template name to use' })
+//   @IsString()
+//   @IsNotEmpty()
+//   template: string;
+
+//   @ApiPropertyOptional({ description: 'Global template context data' })
+//   @IsObject()
+//   @IsOptional()
+//   context?: Record<string, any>;
+
+//   @ApiPropertyOptional({ description: 'Campaign ID for tracking' })
+//   @IsString()
+//   @IsOptional()
+//   campaignId?: string;
+
+//   @ApiPropertyOptional()
+//   @IsOptional()
+//   @IsNumber()
+//   priority?: number;
+
+//   @ApiPropertyOptional()
+//   @IsOptional()
+//   @IsNumber()
+//   delay?: number;
+
+//   @ApiPropertyOptional()
+//   @IsOptional()
+//   @IsNumber()
+//   batchSize?: number;
+// }
+
+// export class WelcomeEmailDto {
+//   @ApiProperty({
+//     description: 'Email address of the recipient',
+//     example: 'user@example.com',
+//   })
+//   @IsEmail()
+//   to: string;
+
+//   @ApiPropertyOptional({
+//     description: 'Name of the recipient',
+//     example: 'John Doe',
+//   })
+//   @IsString()
+//   @IsOptional()
+//   name?: string;
+// }

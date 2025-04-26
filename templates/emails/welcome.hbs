@@ -1,22 +1,126 @@
-
 <!DOCTYPE html>
 <html>
+
 <head>
-  <meta charset="UTF-8">
-  <title>{{appName}} Notification</title>
+  <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome to {{appName}}</title>
+  <style>
+    body {
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      background-color: #f9f9f9;
+      margin: 0;
+      padding: 0;
+    }
+
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #ffffff;
+    }
+
+    .header {
+      text-align: center;
+      padding: 20px 0;
+      border-bottom: 1px solid #eeeeee;
+    }
+
+    .header img {
+      max-height: 50px;
+    }
+
+    .content {
+      padding: 20px 0;
+    }
+
+    .button {
+      display: inline-block;
+      background-color: #4F46E5;
+      color: white;
+      text-decoration: none;
+      padding: 12px 24px;
+      border-radius: 4px;
+      font-weight: bold;
+      margin: 20px 0;
+    }
+
+    .footer {
+      text-align: center;
+      color: #888888;
+      font-size: 12px;
+      padding: 20px 0;
+      border-top: 1px solid #eeeeee;
+    }
+
+    .social-links {
+      margin: 15px 0;
+    }
+
+    .social-link {
+      display: inline-block;
+      margin: 0 10px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      body {
+        background-color: #1f2937;
+        color: #e5e7eb;
+      }
+
+      .container {
+        background-color: #111827;
+      }
+
+      .footer {
+        color: #9ca3af;
+        border-top-color: #374151;
+      }
+
+      .header {
+        border-bottom-color: #374151;
+      }
+
+      a:not(.button) {
+        color: #93c5fd;
+      }
+    }
+  </style>
 </head>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0;">
-  {{> header}}
-  <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-    <h2>Notification from {{appName}}</h2>
-    <p>Hello {{name}},</p>
-    <p>This is a notification from {{appName}}.</p>
-    <p>Thanks,<br>The {{appName}} Team</p>
+
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Welcome to {{appName}}!</h1>
+    </div>
+    <div class="content">
+      <h2>Hello {{name}},</h2>
+      <p>Thank you for joining {{appName}}! We're excited to have you on board.</p>
+      <p>With your new account, you can:</p>
+      <ul>
+        <li>Send secure emails with tracking capabilities</li>
+        <li>Create and manage email templates</li>
+        <li>Set up webhook integrations</li>
+        <li>View detailed analytics</li>
+      </ul>
+      <p>To get started, please visit your dashboard:</p>
+      <a href="{{dashboardUrl}}" class="button">Go to Dashboard</a>
+      <p>If you have any questions or need assistance, please don't hesitate to contact our support team at <a
+          href="mailto:{{supportEmail}}">{{supportEmail}}</a>.</p>
+      <p>We look forward to helping you succeed!</p>
+      <p>Best regards,<br>The {{appName}} Team</p>
+    </div>
+    <div class="footer">
+      <p>© {{currentYear}} {{appName}}. All rights reserved.</p>
+      <p>
+        <a href="{{appUrl}}/privacy">Privacy Policy</a> |
+        <a href="{{appUrl}}/terms">Terms of Service</a>
+      </p>
+      <p>If you didn't create an account with us, please ignore this email or contact us.</p>
+    </div>
   </div>
-  {{> footer recipient=to}}
-  
-  <!-- Tracking pixel for email opens -->
-  <img src="{{appUrl}}/api/email-tracker/{{id}}/open" alt="" width="1" height="1" style="display:none;">
 </body>
+
 </html>

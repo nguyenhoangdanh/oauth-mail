@@ -1,12 +1,14 @@
 // src/webhook/entities/webhook-subscription.entity.ts
 import {
   Entity,
-  Column,
   PrimaryGeneratedColumn,
+  Column,
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  BeforeInsert,
 } from 'typeorm';
+import * as crypto from 'crypto';
 
 @Entity('webhook_subscriptions')
 export class WebhookSubscription {
@@ -40,29 +42,29 @@ export class WebhookSubscription {
 
   @Column({ type: 'json', default: {} })
   headers: Record<string, string>;
-  
+
   @Column({ nullable: true })
   lastErrorMessage: string;
-  
+
   @Column({ default: 0 })
   successCount: number;
-  
+
   @Column({ default: 5 })
   maxRetries: number;
-  
-  @Column({ type: 'int', default: 30 })
+
+  @Column({ default: 30 })
   timeout: number;
-  
+
   @Column({ nullable: true })
   description: string;
-  
+
   @Column({ nullable: true })
   @Index()
   userId: string;
-  
+
   @Column({ type: 'json', nullable: true })
   metadata: Record<string, any>;
-  
+
   @Column({ default: 'POST' })
   method: string;
 
@@ -71,4 +73,11 @@ export class WebhookSubscription {
 
   @UpdateDateColumn()
   updatedAt: Date;
+
+  @BeforeInsert()
+  generateSecretIfNotProvided() {
+    if (!this.secret) {
+      this.secret = crypto.randomBytes(32).toString('hex');
+    }
+  }
 }

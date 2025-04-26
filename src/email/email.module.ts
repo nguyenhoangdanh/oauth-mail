@@ -1,156 +1,63 @@
 // src/email/email.module.ts
-import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { BullModule } from '@nestjs/bull';
+import { BullModule } from '@nestjs/bullmq';
+import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
-import { ScheduleModule } from '@nestjs/schedule';
-
-// Controllers
-import { EmailController } from './email.controller';
-import { EmailDashboardController } from './email-dashboard.controller';
-import { EmailTemplateController } from './email-template.controller';
-import { OAuth2Controller } from './oauth2.controller';
-
-// Services
 import { EmailService } from './email.service';
-import { OAuth2Service } from './oauth2.service';
-import { EmailTrackingHelper } from './email.tracking.helper';
-import { EmailStatsCronService } from './email-stats.cron.service';
-import { EMAIL_SERVICE } from './email.di-token';
-import { ConsoleEmailService } from './console.service';
-
-// Processors
-import { EmailProcessor } from './email.processor';
-import { EmailEventListener } from './email-event.listener';
-
-// Entities
+import { EmailController } from './email.controller';
+import { EmailTemplateController } from './email-template.controller';
+import { EmailQueue } from './email.queue';
 import { EmailLog } from './entities/email-log.entity';
-import { EmailEvent } from './entities/email-event.entity';
-import { EmailStats } from './entities/email-stats.entity';
 import { EmailTemplate } from './entities/email-template.entity';
-import { OAuthCredential } from './entities/oauth-credential.entity';
-
-// Auth
-import { AuthModule } from '../auth/auth.module';
-// Remove the WebhookController import - this is creating the circular dependency
+import { EmailEvent } from './entities/email-event.entity';
+import { EMAIL_SERVICE } from './email.di-token';
+import { EVENT_EMITTER_TOKEN } from '../common/events/event-emitter.di-token';
+import { EmailStats } from './entities/email-stats.entity';
+import EventEmitter from 'events';
+import { AuthModule } from 'src/auth/auth.module';
+import { Session } from 'src/users/entities/session.entity';
 
 @Module({
   imports: [
-    ConfigModule,
     TypeOrmModule.forFeature([
       EmailLog,
+      EmailTemplate,
       EmailEvent,
       EmailStats,
-      EmailTemplate,
-      OAuthCredential,
+      Session,
     ]),
-    EventEmitterModule.forRoot(),
-    ScheduleModule.forRoot(),
     BullModule.registerQueue({
-      name: 'email-queue',
+      name: 'email',
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 5000,
+        },
+        removeOnComplete: true,
+        removeOnFail: true,
+      },
     }),
-    AuthModule,
+    ConfigModule,
+    EventEmitterModule,
+    forwardRef(() => AuthModule),
   ],
-  controllers: [
-    EmailController,
-    // Remove WebhookController from here
-    EmailDashboardController,
-    EmailTemplateController,
-    OAuth2Controller,
-  ],
+  controllers: [EmailController, EmailTemplateController],
   providers: [
-    // Main service provider with factory function
     {
       provide: EMAIL_SERVICE,
-      useFactory: (
-        configService: ConfigService,
-        emailService: EmailService,
-        consoleService: ConsoleEmailService,
-      ) => {
-        const emailEnabled =
-          configService.get<string>('EMAIL_ENABLED', 'false') === 'true';
-        return emailEnabled ? emailService : consoleService;
-      },
-      inject: [ConfigService, EmailService, ConsoleEmailService],
+      useClass: EmailService,
     },
-    // Service implementations
-    EmailService,
-    ConsoleEmailService,
-    EmailTrackingHelper,
-    EmailStatsCronService,
-    OAuth2Service,
-
-    // Event listeners and processors
-    EmailEventListener,
-    EmailProcessor,
+    {
+      provide: EVENT_EMITTER_TOKEN,
+      useFactory: () => {
+        // const EventEmitter = require('events');
+        return new EventEmitter();
+      },
+    },
+    EmailQueue,
   ],
-  exports: [EMAIL_SERVICE, EmailService, EmailTrackingHelper, OAuth2Service],
+  exports: [EMAIL_SERVICE],
 })
 export class EmailModule {}
-// import { Module } from '@nestjs/common';
-// import { ConfigModule, ConfigService } from '@nestjs/config';
-// import { EventEmitter2, EventEmitterModule } from '@nestjs/event-emitter';
-// import { BullModule } from '@nestjs/bull';
-// import { TypeOrmModule } from '@nestjs/typeorm';
-// import { EMAIL_SERVICE } from './email.di-token';
-// import { NodemailerService } from './nodemailer.service';
-// import { ConsoleEmailService } from './console.service';
-// import { EmailWebhookController } from './email.webhook.controller';
-// import { EmailDashboardController } from './email-dashboard.controller';
-// import { EmailEventListener } from './email-event.listener';
-// import { EmailLog } from './entities/email-log.entity';
-// import { EmailEvent } from './entities/email-event.entity';
-// import { EmailStats } from './entities/email-stats.entity';
-// import { EmailTemplate } from './entities/email-template.entity';
-// import { EmailTrackingHelper } from './email.tracking.helper';
-// import { ScheduleModule } from '@nestjs/schedule';
-// import { EmailStatsCronService } from './email-stats.cron.service';
-
-// @Module({
-//   imports: [
-//     ConfigModule,
-//     TypeOrmModule.forFeature([EmailLog, EmailEvent, EmailStats, EmailTemplate]),
-//     EventEmitterModule.forRoot(),
-//     ScheduleModule.forRoot(),
-//     BullModule.forRootAsync({
-//       imports: [ConfigModule],
-//       useFactory: async (configService: ConfigService) => ({
-//         redis: {
-//           host: configService.get('REDIS_HOST', 'localhost'),
-//           port: configService.get('REDIS_PORT', 6379),
-//           password: configService.get('REDIS_PASSWORD', ''),
-//         },
-//       }),
-//       inject: [ConfigService],
-//     }),
-//     BullModule.registerQueue({
-//       name: 'email-queue',
-//     }),
-//   ],
-//   controllers: [EmailWebhookController, EmailDashboardController],
-//   providers: [
-//     {
-//       provide: EMAIL_SERVICE,
-//       useFactory: (
-//         configService: ConfigService,
-//         eventEmitter: EventEmitter2,
-//       ) => {
-//         const emailEnabled =
-//           configService.get<string>('EMAIL_ENABLED', 'false') === 'true';
-
-//         if (!emailEnabled) {
-//           return new ConsoleEmailService();
-//         }
-
-//         return new NodemailerService(configService, eventEmitter);
-//       },
-//       inject: [ConfigService, EventEmitter2],
-//     },
-//     EmailEventListener,
-//     EmailTrackingHelper,
-//     EmailStatsCronService,
-//   ],
-//   exports: [EMAIL_SERVICE, EmailTrackingHelper],
-// })
-// export class EmailModule {}

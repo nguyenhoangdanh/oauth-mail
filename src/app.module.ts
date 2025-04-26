@@ -16,7 +16,7 @@ import { validate } from './config/env.validation';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
 import { SecurityMiddleware } from './common/middleware/security.middleware';
-import { BullModule } from '@nestjs/bull';
+import { BullModule } from '@nestjs/bullmq';
 
 @Module({
   imports: [
@@ -53,14 +53,24 @@ import { BullModule } from '@nestjs/bull';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
+        const redisConfig = {
+          host: configService.get('REDIS_HOST', 'localhost'),
+          port: configService.get('REDIS_PORT', 6380),
+          password: configService.get('REDIS_PASSWORD', ''),
+        };
+
         return {
-          redis: {
-            host: configService.get('REDIS_HOST', 'localhost'),
-            port: configService.get('REDIS_PORT', 6380),
-            password: configService.get('REDIS_PASSWORD', ''),
+          connection: {
+            host: redisConfig.host,
+            port: redisConfig.port,
+            password: redisConfig.password,
           },
           prefix: 'bull',
-        } as any;
+          defaultJobOptions: {
+            removeOnComplete: true,
+            removeOnFail: true,
+          },
+        };
       },
     }),
 

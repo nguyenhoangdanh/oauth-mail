@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
-import { EmailLog } from './entities/email-log.entity';
+import { EmailLog, EmailStatus } from './entities/email-log.entity';
 import { EmailStats } from './entities/email-stats.entity';
 
 @Injectable()
@@ -49,31 +49,31 @@ export class EmailStatsCronService {
         }),
         this.emailLogRepository.count({
           where: {
-            status: 'delivered',
+            status: EmailStatus.DELIVERED,
             lastStatusAt: Between(yesterday, today),
           },
         }),
         this.emailLogRepository.count({
           where: {
-            status: 'opened',
+            status: EmailStatus.OPENED,
             openedAt: Between(yesterday, today),
           },
         }),
         this.emailLogRepository.count({
           where: {
-            status: 'clicked',
+            status: EmailStatus.CLICKED,
             clickedAt: Between(yesterday, today),
           },
         }),
         this.emailLogRepository.count({
           where: {
-            status: 'bounced',
+            status: EmailStatus.BOUNCED,
             lastStatusAt: Between(yesterday, today),
           },
         }),
         this.emailLogRepository.count({
           where: {
-            status: 'failed',
+            status: EmailStatus.FAILED,
             lastStatusAt: Between(yesterday, today),
           },
         }),

@@ -39,6 +39,7 @@ export class AdminGuard implements CanActivate {
 
       return true;
     } catch (error) {
+      console.log('error', error);
       throw new UnauthorizedException('Invalid authentication token');
     }
   }

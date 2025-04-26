@@ -1,29 +1,82 @@
 // src/webhook/webhook.module.ts
-import { Module, forwardRef } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { BullModule } from '@nestjs/bull';
+import { BullModule } from '@nestjs/bullmq';
 import { ConfigModule } from '@nestjs/config';
 import { WebhookController } from './webhook.controller';
 import { WebhookService } from './webhook.service';
 import { WebhookProcessor } from './webhook.processor';
 import { WebhookSubscription } from './entities/webhook-subscription.entity';
 import { WebhookDeliveryLog } from './entities/webhook-delivery-log.entity';
-import { EmailModule } from '../email/email.module';
-import { AuthModule } from '../auth/auth.module';
+import { EVENT_EMITTER_TOKEN } from '../common/events/event-emitter.di-token';
+import EventEmitter from 'events';
+import { AuthModule } from 'src/auth/auth.module';
+import { Session } from 'src/users/entities/session.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([WebhookSubscription, WebhookDeliveryLog]),
+    TypeOrmModule.forFeature([
+      WebhookSubscription,
+      WebhookDeliveryLog,
+      Session,
+    ]),
     BullModule.registerQueue({
-      name: 'webhook-queue',
+      name: 'webhook',
+      defaultJobOptions: {
+        attempts: 5,
+        backoff: {
+          type: 'exponential',
+          delay: 1000,
+        },
+        removeOnComplete: true,
+        removeOnFail: true,
+      },
     }),
-    // Use forwardRef to break the circular dependency
-    forwardRef(() => EmailModule),
-    AuthModule,
     ConfigModule,
+    forwardRef(() => AuthModule),
   ],
   controllers: [WebhookController],
-  providers: [WebhookService, WebhookProcessor],
+  providers: [
+    WebhookService,
+    WebhookProcessor,
+    {
+      provide: EVENT_EMITTER_TOKEN,
+      useFactory: () => {
+        // const EventEmitter = require('events');
+        return new EventEmitter();
+      },
+    },
+  ],
   exports: [WebhookService],
 })
 export class WebhookModule {}
+
+// // src/webhook/webhook.module.ts
+// import { Module, forwardRef } from '@nestjs/common';
+// import { TypeOrmModule } from '@nestjs/typeorm';
+// import { BullModule } from '@nestjs/bull';
+// import { ConfigModule } from '@nestjs/config';
+// import { WebhookController } from './webhook.controller';
+// import { WebhookService } from './webhook.service';
+// import { WebhookProcessor } from './webhook.processor';
+// import { WebhookSubscription } from './entities/webhook-subscription.entity';
+// import { WebhookDeliveryLog } from './entities/webhook-delivery-log.entity';
+// import { EmailModule } from '../email/email.module';
+// import { AuthModule } from '../auth/auth.module';
+
+// @Module({
+//   imports: [
+//     TypeOrmModule.forFeature([WebhookSubscription, WebhookDeliveryLog]),
+//     BullModule.registerQueue({
+//       name: 'webhook-queue',
+//     }),
+//     // Use forwardRef to break the circular dependency
+//     forwardRef(() => EmailModule),
+//     AuthModule,
+//     ConfigModule,
+//   ],
+//   controllers: [WebhookController],
+//   providers: [WebhookService, WebhookProcessor],
+//   exports: [WebhookService],
+// })
+// export class WebhookModule {}

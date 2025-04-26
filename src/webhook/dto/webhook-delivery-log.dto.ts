@@ -17,10 +17,15 @@ export class WebhookDeliveryLogDto {
   @ApiProperty({ description: 'Delivery attempt number' })
   attempt: number;
 
-  @ApiProperty({ description: 'Current status of the delivery', enum: ['pending', 'success', 'failed'] })
+  @ApiProperty({
+    description: 'Current status of the delivery',
+    enum: ['pending', 'success', 'failed'],
+  })
   status: 'pending' | 'success' | 'failed';
 
-  @ApiPropertyOptional({ description: 'HTTP status code returned by the endpoint' })
+  @ApiPropertyOptional({
+    description: 'HTTP status code returned by the endpoint',
+  })
   statusCode?: number;
 
   @ApiPropertyOptional({ description: 'Response body from the endpoint' })

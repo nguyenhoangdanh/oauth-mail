@@ -1,111 +1,48 @@
+<!-- templates/emails/welcome.hbs -->
 <!DOCTYPE html>
 <html>
 
 <head>
     <meta charset="UTF-8">
-    <title>Welcome to {{appName}}!</title>
+    <title>Chào mừng bạn đến với dịch vụ của chúng tôi</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        /* Base styles */
-        body {
-            font-family: Arial, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            margin: 0;
-            padding: 0;
-            background-color: #f9fafb;
-        }
-
-        /* Container styles */
-        .container {
-            max-width: 600px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #ffffff;
-        }
-
-        /* Feature box */
-        .feature-box {
-            padding: 15px;
-            margin: 10px 0;
-            background-color: #f0f9ff;
-            border-radius: 5px;
-        }
-
-        /* Feature icon */
-        .feature-icon {
-            color: #3b82f6;
-            font-weight: bold;
-            margin-right: 5px;
-        }
-
-        /* Button styles */
-        .button {
-            display: inline-block;
-            background-color: #3b82f6;
-            color: white;
-            text-decoration: none;
-            padding: 12px 24px;
-            border-radius: 5px;
-            font-weight: bold;
-            text-align: center;
-        }
-
-        /* Responsive styles */
-        @media only screen and (max-width: 600px) {
-            .container {
-                width: 100% !important;
-            }
-
-            .button {
-                width: 100% !important;
-                box-sizing: border-box;
-            }
-        }
-    </style>
 </head>
 
-<body>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0;">
+    {{#if header}}
     {{> header}}
+    {{else}}
+    <header style="background-color: #f8f9fa; padding: 20px; text-align: center; border-bottom: 1px solid #e9ecef;">
+        <h2>{{appName}}</h2>
+    </header>
+    {{/if}}
 
-    <div class="container">
-        <h2 style="color: #1f2937; margin-top: 20px;">Welcome to {{appName}}!</h2>
-
-        <p>Hello {{name}},</p>
-
-        <p>Thank you for joining {{appName}}! We're excited to have you as part of our community. Your account has been
-            successfully created and is ready to use.</p>
-
-        <div style="text-align: center; margin: 30px 0;">
-            {{#trackButton loginUrl "Get Started" emailId "button"}}{{/trackButton}}
-        </div>
-
-        <h3 style="color: #1f2937; margin-top: 30px;">Key Features of {{appName}}</h3>
-
-        <div class="feature-box">
-            <p><span class="feature-icon">✓</span> <strong>Secure Communication</strong>: Our platform uses
-                industry-leading encryption to keep your communications safe.</p>
-        </div>
-
-        <div class="feature-box">
-            <p><span class="feature-icon">✓</span> <strong>User-Friendly Interface</strong>: Our intuitive design makes
-                sending and receiving emails a breeze.</p>
-        </div>
-
-        <div class="feature-box">
-            <p><span class="feature-icon">✓</span> <strong>Advanced Analytics</strong>: Track your email performance
-                with detailed analytics and reports.</p>
-        </div>
-
-        <p style="margin-top: 30px;">If you have any questions or need assistance, our support team is always here to
-            help.</p>
-
-        <p>We hope you enjoy using {{appName}}!</p>
-
-        <p>Best regards,<br>The {{appName}} Team</p>
+    <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+        <h2>Chào mừng bạn đến với {{appName}}!</h2>
+        <p>Xin chào {{name}},</p>
+        <p>Cảm ơn bạn đã đăng ký tài khoản. Chúng tôi rất vui mừng được chào đón bạn!</p>
+        <p>Bạn có thể bắt đầu sử dụng dịch vụ của chúng tôi ngay bây giờ bằng cách đăng nhập tại liên kết dưới đây:</p>
+        <p style="text-align: center;">
+            <a href="{{loginUrl}}"
+                style="display: inline-block; background-color: #4CAF50; color: white; text-decoration: none; padding: 12px 24px; border-radius: 5px; font-weight: bold;">Đăng
+                nhập</a>
+        </p>
+        <p>Nếu bạn có bất kỳ câu hỏi nào, đừng ngần ngại liên hệ với chúng tôi.</p>
+        <p>Trân trọng,<br>Đội ngũ {{appName}}</p>
     </div>
 
-    {{> footer recipient=to emailId=id}}
+    {{#if footer}}
+    {{> footer recipient=to}}
+    {{else}}
+    <footer
+        style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e9ecef; text-align: center; color: #6c757d; font-size: 0.9em;">
+        <p>© {{currentYear}} {{appName}}. All rights reserved.</p>
+        <p>Email này được gửi đến {{to}}. Nếu bạn có thắc mắc, vui lòng liên hệ với chúng tôi.</p>
+    </footer>
+    {{/if}}
+
+    <!-- Tracking pixel for email opens -->
+    <img src="{{appUrl}}/api/email/tracker/{{emailId}}/open" alt="" width="1" height="1" style="display:none;">
 </body>
 
 </html>

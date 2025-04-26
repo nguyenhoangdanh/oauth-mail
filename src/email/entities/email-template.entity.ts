@@ -1,8 +1,8 @@
 // src/email/entities/email-template.entity.ts
 import {
   Entity,
-  Column,
   PrimaryGeneratedColumn,
+  Column,
   CreateDateColumn,
   UpdateDateColumn,
   Index,
@@ -17,38 +17,30 @@ export class EmailTemplate {
   @Index()
   name: string;
 
+  @Column({ nullable: true })
+  subject: string;
+
+  @Column({ nullable: true })
+  description: string;
+
   @Column({ type: 'text' })
   content: string;
 
   @Column({ default: true })
   isActive: boolean;
 
-  @Column({ default: 'html' })
-  format: string;
+  @Column({ default: 1 })
+  version: number;
 
   @Column({ nullable: true })
-  description: string;
-  
-  @Column({ nullable: true })
-  subject: string;
-  
-  @Column({ nullable: true })
-  category: string;
-  
-  @Column({ type: 'json', default: {} })
-  variables: Record<string, any>;
-  
+  lastEditor: string;
+
   @Column({ nullable: true })
   previewText: string;
-  
+
   @Column({ nullable: true })
-  thumbnailUrl: string;
-  
-  @Column({ default: 0 })
-  version: number;
-  
-  @Column({ nullable: true })
-  lastEditor: string;
+  @Index()
+  category: string;
 
   @CreateDateColumn()
   createdAt: Date;

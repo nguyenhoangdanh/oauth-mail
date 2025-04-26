@@ -23,7 +23,7 @@ export class RedisStore implements Store {
     this.defaultTtl = config.ttl || 300; // 5 minutes default
 
     this.client = createClient({
-      url: `redis://${config.host || 'localhost'}:${config.port || 6379}`,
+      url: `redis://${config.host || 'localhost'}:${config.port || 6380}`,
       password: config.password,
     });
 

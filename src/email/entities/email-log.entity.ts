@@ -1,13 +1,25 @@
 // src/email/entities/email-log.entity.ts
 import {
   Entity,
-  Column,
   PrimaryGeneratedColumn,
+  Column,
   CreateDateColumn,
   UpdateDateColumn,
   Index,
 } from 'typeorm';
 
+// Define status enum to match database enum type
+export enum EmailStatus {
+  PENDING = 'pending',
+  PROCESSING = 'processing',
+  SENT = 'sent',
+  DELIVERED = 'delivered',
+  OPENED = 'opened',
+  CLICKED = 'clicked',
+  BOUNCED = 'bounced',
+  FAILED = 'failed',
+  COMPLAINED = 'complained',
+}
 @Entity('email_logs')
 export class EmailLog {
   @PrimaryGeneratedColumn('uuid')
@@ -27,13 +39,19 @@ export class EmailLog {
   subject: string;
 
   @Column()
+  @Index()
   template: string;
 
   @Column({ type: 'json', default: {} })
   context: Record<string, any>;
 
-  @Column({ default: 'pending' })
-  status: string;
+  @Column({
+    type: 'enum',
+    enum: EmailStatus,
+    default: EmailStatus.PENDING,
+  })
+  @Index()
+  status: EmailStatus;
 
   @Column({ nullable: true })
   messageId: string;
@@ -73,40 +91,40 @@ export class EmailLog {
 
   @Column({ default: 0 })
   clickCount: number;
-  
+
   @Column({ nullable: true })
   @Index()
   campaignId: string;
-  
+
   @Column({ nullable: true })
   @Index()
   batchId: string;
-  
+
   @Column({ nullable: true })
   resendId: string;
-  
+
   @Column({ nullable: true })
   ipAddress: string;
-  
+
   @Column({ nullable: true })
   userAgent: string;
-  
+
   @Column({ nullable: true })
   location: string;
-  
+
   @Column({ nullable: true })
   device: string;
-  
+
   @Column({ type: 'json', nullable: true })
   tags: string[];
-  
+
   @Column({ nullable: true })
   @Index()
   userId: string;
-  
+
   @Column({ nullable: true })
   complaintReason: string;
-  
+
   @Column({ default: false })
   isTest: boolean;
 }

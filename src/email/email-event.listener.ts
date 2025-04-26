@@ -3,8 +3,8 @@ import { OnEvent } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { WebhookEvent } from './nodemailer.service';
-import { EmailEvent } from './entities/email-event.entity';
-import { EmailLog } from './entities/email-log.entity';
+import { EmailEvent, EmailEventType } from './entities/email-event.entity';
+import { EmailLog, EmailStatus } from './entities/email-log.entity';
 
 @Injectable()
 export class EmailEventListener {
@@ -26,7 +26,7 @@ export class EmailEventListener {
     await this.saveEmailEvent(payload);
 
     // Cập nhật trạng thái email trong log
-    await this.updateEmailLog(payload.emailId, 'sent');
+    await this.updateEmailLog(payload.emailId, EmailStatus.SENT);
   }
 
   @OnEvent('email.delivered')
@@ -36,7 +36,7 @@ export class EmailEventListener {
     await this.saveEmailEvent(payload);
 
     // Cập nhật trạng thái email trong log
-    await this.updateEmailLog(payload.emailId, 'delivered');
+    await this.updateEmailLog(payload.emailId, EmailStatus.DELIVERED);
   }
 
   @OnEvent('email.opened')
@@ -46,7 +46,7 @@ export class EmailEventListener {
     await this.saveEmailEvent(payload);
 
     // Cập nhật trạng thái email trong log
-    await this.updateEmailLog(payload.emailId, 'opened', {
+    await this.updateEmailLog(payload.emailId, EmailStatus.OPENED, {
       openedAt: payload.timestamp,
     });
   }
@@ -60,7 +60,7 @@ export class EmailEventListener {
     await this.saveEmailEvent(payload);
 
     // Cập nhật trạng thái email trong log
-    await this.updateEmailLog(payload.emailId, 'clicked', {
+    await this.updateEmailLog(payload.emailId, EmailStatus.CLICKED, {
       clickedAt: payload.timestamp,
       clickUrl: payload.metadata?.url,
     });
@@ -73,7 +73,7 @@ export class EmailEventListener {
     await this.saveEmailEvent(payload);
 
     // Cập nhật trạng thái email trong log
-    await this.updateEmailLog(payload.emailId, 'bounced', {
+    await this.updateEmailLog(payload.emailId, EmailStatus.BOUNCED, {
       bounceReason: payload.metadata?.reason || 'Unknown',
     });
   }
@@ -85,7 +85,7 @@ export class EmailEventListener {
     await this.saveEmailEvent(payload);
 
     // Cập nhật trạng thái email trong log
-    await this.updateEmailLog(payload.emailId, 'complained');
+    await this.updateEmailLog(payload.emailId, EmailStatus.COMPLAINED);
   }
 
   @OnEvent('email.failed')
@@ -95,7 +95,7 @@ export class EmailEventListener {
     await this.saveEmailEvent(payload);
 
     // Cập nhật trạng thái email trong log
-    await this.updateEmailLog(payload.emailId, 'failed', {
+    await this.updateEmailLog(payload.emailId, EmailStatus.FAILED, {
       error: payload.metadata?.error || 'Unknown error',
     });
   }
@@ -104,7 +104,7 @@ export class EmailEventListener {
     try {
       const emailEvent = new EmailEvent();
       emailEvent.emailId = event.emailId;
-      emailEvent.event = event.event;
+      emailEvent.event = event.event as EmailEventType;
       emailEvent.recipient = event.recipient;
       emailEvent.timestamp = event.timestamp;
       emailEvent.metadata = event.metadata || {};
@@ -120,7 +120,7 @@ export class EmailEventListener {
 
   private async updateEmailLog(
     emailId: string,
-    status: string,
+    status: EmailStatus,
     additionalData: Record<string, any> = {},
   ): Promise<void> {
     try {

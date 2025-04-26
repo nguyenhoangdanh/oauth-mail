@@ -1,10 +1,11 @@
-// entities/email-stats.entity.ts
+// src/email/entities/email-stat.entity.ts
 import {
   Entity,
-  Column,
   PrimaryGeneratedColumn,
+  Column,
   CreateDateColumn,
   UpdateDateColumn,
+  Index,
 } from 'typeorm';
 
 @Entity('email_stats')
@@ -12,7 +13,16 @@ export class EmailStats {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
+  @Column({ nullable: true })
+  @Index()
+  campaignId: string;
+
+  @Column({ nullable: true })
+  @Index()
+  template: string;
+
+  @Column({ nullable: true, type: 'date' })
+  @Index()
   date: Date;
 
   @Column({ default: 0 })

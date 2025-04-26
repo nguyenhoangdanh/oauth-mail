@@ -1,98 +1,108 @@
 // src/email/email.port.ts
+/**
+ * Email service interface defining required methods for any email provider implementation
+ */
 export interface IEmailService {
-  sendVerificationEmail(
-    to: string,
-    name: string | null,
-    token: string,
-  ): Promise<string>;
-  
-  sendPasswordResetEmail(
-    to: string,
-    name: string | null,
-    token: string,
-  ): Promise<string>;
-  
-  sendWelcomeEmail(
-    to: string, 
-    name: string | null
-  ): Promise<string>;
-  
-  sendTwoFactorBackupCodesEmail(
-    to: string,
-    name: string | null,
-    codes: string[],
-  ): Promise<string>;
-  
-  sendLoginNotificationEmail(
-    to: string,
-    name: string | null,
-    device: string,
-    location: string,
-    time: Date,
-  ): Promise<string>;
-  
-  sendLoginAttemptNotificationEmail(
-    to: string,
-    name: string | null,
-    device: string,
-    location: string,
-    time: Date,
-  ): Promise<string>;
-  
-  getEmailStatus(emailId: string): Promise<any>; 
-
   /**
-   * Register webhook handler for specific event
-   * @param event Event name to listen for
-   * @param handler Function to call when event occurs
-   */
-  registerWebhook(event: string, handler: (data: any) => void): void;
-  
-  /**
-   * Queue an email to be sent
-   * @param to Recipient email address
+   * Sends an email using a template with context variables
+   * @param to Recipient email or array of emails
    * @param subject Email subject
-   * @param template Template name
-   * @param context Template context data
-   * @param options Additional options
-   * @returns Promise with email ID
+   * @param template Template name to use
+   * @param context Object containing variables to inject into the template
+   * @param options Additional options for the email
    */
   queueEmail(
-    to: string,
+    to: string | string[],
     subject: string,
     template: string,
-    context?: Record<string, any>,
-    options?: any
+    context: Record<string, any>,
+    options?: EmailOptions,
   ): Promise<string>;
-  
+
   /**
-   * Send emails in bulk
-   * @param recipients Array of recipients
-   * @param subject Email subject
-   * @param template Template name
-   * @param context Template context data
-   * @param options Additional options
-   * @returns Promise with batch information
+   * Sends a verification email to a new user
+   * @param email User's email address
+   * @param name User's name
+   * @param token Verification token
    */
-  sendBulkEmails(
-    recipients: Array<{ email: string; name?: string; context?: Record<string, any> }>,
-    subject: string,
-    template: string,
-    context?: Record<string, any>,
-    options?: any
-  ): Promise<{ batchId: string; queued: number }>;
-  
+  sendVerificationEmail(
+    email: string,
+    name: string,
+    token: string,
+  ): Promise<string>;
+
   /**
-   * Get email status by email ID
-   * @param emailId Email ID
-   * @returns Promise with email log or null
+   * Sends a password reset email
+   * @param email User's email address
+   * @param name User's name
+   * @param token Reset token
    */
-  getEmailStatus(emailId: string): Promise<any>;
-  
+  sendPasswordResetEmail(
+    email: string,
+    name: string,
+    token: string,
+  ): Promise<string>;
+
   /**
-   * Resend a failed email
-   * @param emailId Email ID to resend
-   * @returns Promise with new email ID
+   * Sends a welcome email after registration
+   * @param email User's email address
+   * @param name User's name
    */
-  resendEmail(emailId: string): Promise<string | null>;
+  sendWelcomeEmail(email: string, name: string): Promise<string>;
+
+  /**
+   * Sends a notification about new login
+   * @param email User's email address
+   * @param name User's name
+   * @param loginInfo Information about the login (device, location, etc.)
+   */
+  // sendLoginNotification(
+  //   email: string,
+  //   name: string,
+  //   loginInfo: LoginInfo,
+  // ): Promise<void>;
+}
+
+/**
+ * Additional options for sending an email
+ */
+export interface EmailOptions {
+  from?: string;
+  cc?: string | string[];
+  bcc?: string | string[];
+  attachments?: EmailAttachment[];
+  tags?: string[];
+  campaignId?: string;
+  batchId?: string;
+  trackOpens?: boolean;
+  trackClicks?: boolean;
+  ipAddress?: string;
+  deliveryTime?: Date;
+  userId?: string;
+  isTest?: boolean;
+  replyTo?: string;
+  customHeaders?: Record<string, string>;
+  priority?: 'high' | 'normal' | 'low';
+}
+
+/**
+ * Email attachment
+ */
+export interface EmailAttachment {
+  filename: string;
+  content: string | Buffer;
+  contentType?: string;
+  cid?: string; // Content ID for inline images
+}
+
+/**
+ * Login information for notifications
+ */
+export interface LoginInfo {
+  ipAddress?: string;
+  userAgent?: string;
+  device?: string;
+  location?: string;
+  time?: Date;
+  isNewDevice?: boolean;
 }

@@ -1,52 +1,128 @@
 // src/webhook/dto/create-webhook.dto.ts
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty } from '@nestjs/swagger';
 import {
   IsNotEmpty,
   IsString,
-  IsBoolean,
-  IsOptional,
-  IsObject,
   IsUrl,
+  IsOptional,
+  IsBoolean,
+  IsInt,
+  Min,
+  Max,
+  IsObject,
   IsIn,
+  MaxLength,
 } from 'class-validator';
 
 export class CreateWebhookDto {
-  @ApiProperty({ description: 'Webhook name' })
+  @ApiProperty({
+    description: 'Webhook name',
+    example: 'Email Notifications',
+  })
   @IsString()
   @IsNotEmpty()
+  @MaxLength(100)
   name: string;
 
-  @ApiProperty({ description: 'Event type to subscribe to' })
+  @ApiProperty({
+    description: 'Event to subscribe to',
+    example: 'email.sent',
+  })
   @IsString()
-  @IsIn([
-    'sent',
-    'delivered',
-    'opened',
-    'clicked',
-    'bounced',
-    'complained',
-    'failed',
-  ])
   @IsNotEmpty()
   event: string;
 
-  @ApiProperty({ description: 'Webhook endpoint URL' })
-  @IsUrl()
+  @ApiProperty({
+    description: 'URL endpoint to deliver webhook events',
+    example: 'https://example.com/webhooks/email',
+  })
+  @IsUrl({
+    protocols: ['http', 'https'],
+    require_protocol: true,
+  })
   @IsNotEmpty()
   endpoint: string;
 
-  @ApiProperty({ description: 'Secret key for webhook validation' })
+  @ApiProperty({
+    description: 'Secret used to sign webhook payloads',
+    example: 'your-webhook-secret-key',
+    required: false,
+  })
   @IsString()
-  @IsNotEmpty()
-  secret: string;
-
-  @ApiPropertyOptional({ description: 'Custom headers to send with webhook' })
-  @IsObject()
   @IsOptional()
-  headers?: Record<string, string> = {};
+  secret?: string;
 
-  @ApiPropertyOptional({ description: 'Is webhook active' })
+  @ApiProperty({
+    description: 'Whether the webhook is active',
+    example: true,
+    default: true,
+    required: false,
+  })
   @IsBoolean()
   @IsOptional()
-  isActive?: boolean = true;
+  isActive?: boolean;
+
+  @ApiProperty({
+    description: 'Max number of retry attempts',
+    example: 5,
+    default: 5,
+    required: false,
+  })
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  @IsOptional()
+  maxRetries?: number;
+
+  @ApiProperty({
+    description: 'Timeout in seconds for webhook delivery',
+    example: 30,
+    default: 30,
+    required: false,
+  })
+  @IsInt()
+  @Min(5)
+  @Max(60)
+  @IsOptional()
+  timeout?: number;
+
+  @ApiProperty({
+    description: 'HTTP method to use for delivery',
+    example: 'POST',
+    default: 'POST',
+    enum: ['POST', 'PUT', 'PATCH'],
+    required: false,
+  })
+  @IsString()
+  @IsIn(['POST', 'PUT', 'PATCH'])
+  @IsOptional()
+  method?: string;
+
+  @ApiProperty({
+    description: 'Additional HTTP headers to include',
+    example: { 'X-Custom-Header': 'value' },
+    required: false,
+  })
+  @IsObject()
+  @IsOptional()
+  headers?: Record<string, string>;
+
+  @ApiProperty({
+    description: 'Description of webhook purpose',
+    example: 'Notify our CRM when emails are opened',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  @MaxLength(500)
+  description?: string;
+
+  @ApiProperty({
+    description: 'Additional metadata for the webhook',
+    example: { integrationId: '123', tags: ['production'] },
+    required: false,
+  })
+  @IsObject()
+  @IsOptional()
+  metadata?: Record<string, any>;
 }
