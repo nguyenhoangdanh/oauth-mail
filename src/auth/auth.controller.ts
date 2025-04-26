@@ -14,7 +14,12 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Response } from 'express';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { GetUser } from './decorators/get-user.decorator';
@@ -69,57 +74,12 @@ export class AuthController {
     };
   }
 
-  @ApiOperation({ summary: 'Verify a magic link' })
-  @ApiResponse({
-    status: 200,
-    description: 'Magic link verified successfully',
-  })
-  @Get('verify-magic-link/:token')
-  async verifyMagicLink(
-    @Param('token') token: string,
-    @Req() req,
-    @Res() res: Response,
-  ) {
-    try {
-      const result = await this.authService.verifyMagicLink(token, req);
-      // Redirect to frontend with token
-      return res.redirect(
-        `${this.configService.get('FRONTEND_URL')}/auth/callback?token=${result.accessToken}`,
-      );
-    } catch (error) {
-      // Redirect to error page
-      return res.redirect(
-        `${this.configService.get('FRONTEND_URL')}/auth/error?message=${error.message}`,
-      );
-    }
-  }
-
-  @ApiOperation({ summary: 'Verify email address' })
-  @ApiResponse({
-    status: 200,
-    description: 'Email verified successfully',
-  })
-  @Get('verify-email/:token')
-  async verifyEmail(@Param('token') token: string, @Res() res: Response) {
-    try {
-      await this.authService.verifyEmail(token);
-      // Redirect to success page
-      return res.redirect(
-        `${this.configService.get('FRONTEND_URL')}/auth/email-verified`,
-      );
-    } catch (error) {
-      // Redirect to error page
-      return res.redirect(
-        `${this.configService.get('FRONTEND_URL')}/auth/error?message=${error.message}`,
-      );
-    }
-  }
-
   @ApiOperation({ summary: 'Get the current logged-in user' })
   @ApiResponse({
     status: 200,
     description: 'Returns the current user',
   })
+  @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Get('me')
   async getProfile(@GetUser() user: User) {
@@ -197,5 +157,51 @@ export class AuthController {
     // Update session in database
     // This would typically be handled by your session service
     return { success: true, message: 'Logged out successfully' };
+  }
+
+  @ApiOperation({ summary: 'Verify a magic link' })
+  @ApiResponse({
+    status: 200,
+    description: 'Magic link verified successfully',
+  })
+  @Get('verify-magic-link/:token')
+  async verifyMagicLink(
+    @Param('token') token: string,
+    @Req() req,
+    @Res() res: Response,
+  ) {
+    try {
+      const result = await this.authService.verifyMagicLink(token, req);
+      // Redirect to frontend with token
+      return res.redirect(
+        `${this.configService.get('FRONTEND_URL')}/auth/callback?token=${result.accessToken}`,
+      );
+    } catch (error) {
+      // Redirect to error page
+      return res.redirect(
+        `${this.configService.get('FRONTEND_URL')}/auth/error?message=${error.message}`,
+      );
+    }
+  }
+
+  @ApiOperation({ summary: 'Verify email address' })
+  @ApiResponse({
+    status: 200,
+    description: 'Email verified successfully',
+  })
+  @Get('verify-email/:token')
+  async verifyEmail(@Param('token') token: string, @Res() res: Response) {
+    try {
+      await this.authService.verifyEmail(token);
+      // Redirect to success page
+      return res.redirect(
+        `${this.configService.get('FRONTEND_URL')}/auth/email-verified`,
+      );
+    } catch (error) {
+      // Redirect to error page
+      return res.redirect(
+        `${this.configService.get('FRONTEND_URL')}/auth/error?message=${error.message}`,
+      );
+    }
   }
 }

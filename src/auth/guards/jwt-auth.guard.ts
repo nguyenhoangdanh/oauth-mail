@@ -9,6 +9,7 @@ import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Session } from 'src/users/entities/session.entity';
+import { Request } from 'express';
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
@@ -21,13 +22,14 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    // First, check JWT is valid
     const canActivate = await super.canActivate(context);
+
     if (!canActivate) {
       return false;
     }
 
     const request = context.switchToHttp().getRequest();
+
     const user = request.user;
 
     // Validate that the session exists and is active
@@ -52,10 +54,16 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
   }
 
   handleRequest(err, user) {
-    // Throw an exception if authentication failed
+    // Nếu có lỗi hoặc không có user
     if (err || !user) {
+      // Log chi tiết hơn
+      console.error(
+        'Authentication failed:',
+        err || 'No user returned from strategy',
+      );
       throw err || new UnauthorizedException('Authentication failed');
     }
+
     return user;
   }
 }
