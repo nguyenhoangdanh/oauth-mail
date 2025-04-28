@@ -44,7 +44,7 @@ export class EmailService implements IEmailService {
 
     // Initialize SMTP transporter based on environment
     this.initializeTransporter();
-
+    this.logger.log(`Transporter initialized: ${!!this.transporter}`);
     // Initialize Handlebars helpers
     this.registerHandlebarsHelpers();
 
@@ -58,12 +58,34 @@ export class EmailService implements IEmailService {
   }
 
   private async initializeTransporter() {
+    // Common configuration for both production and development
+    const host = this.configService.get<string>('SMTP_HOST');
+    const port = this.configService.get<number>('SMTP_PORT');
+    const user = this.configService.get<string>('SMTP_USER');
+    const pass =
+      this.configService.get<string>('SMTP_PASSWORD') ||
+      this.configService.get<string>('SMTP_PASS');
+    const secure = false;
+    const appPassword = this.configService.get<string>(
+      'EMAIL_APP_PASSWORD_GOOGLE',
+    );
+    this.logger.log(
+      `Setting up SMTP---->: ${host}:${port} (secure: ${secure})`,
+    );
+
+    if (!host || !port || !user || !pass) {
+      this.logger.error(
+        'Missing SMTP configuration. Check your environment variables.',
+      );
+      return;
+    }
+
     if (this.isProduction) {
       // Production configuration
       this.transporter = nodemailer.createTransport({
         host: this.configService.get<string>('SMTP_HOST'),
         port: this.configService.get<number>('SMTP_PORT'),
-        secure: this.configService.get<boolean>('SMTP_SECURE', true),
+        // secure: this.configService.get<boolean>('SMTP_SECURE', true),
         auth: {
           user: this.configService.get<string>('SMTP_USER'),
           pass: this.configService.get<string>('SMTP_PASSWORD'),
@@ -76,12 +98,16 @@ export class EmailService implements IEmailService {
       // Development configuration - Use Ethereal for testing
       const testAccount = await nodemailer.createTestAccount();
       this.transporter = nodemailer.createTransport({
-        host: 'smtp.ethereal.email',
-        port: 587,
-        secure: false,
+        host,
+        port,
+        secure, // This should match your server requirements
         auth: {
-          user: testAccount.user,
-          pass: testAccount.pass,
+          user,
+          pass: appPassword,
+        },
+        tls: {
+          // Do not fail on invalid certificates
+          rejectUnauthorized: false,
         },
       });
       this.logger.log(
@@ -90,12 +116,16 @@ export class EmailService implements IEmailService {
     }
 
     // Verify connection
-    this.transporter.verify((error) => {
-      if (error) {
-        this.logger.error('SMTP connection error:', error);
-      } else {
-        this.logger.log('SMTP server is ready to send emails');
-      }
+    await new Promise<void>((resolve, reject) => {
+      this.transporter.verify((error) => {
+        if (error) {
+          this.logger.error('SMTP connection error:', error);
+          reject(error);
+        } else {
+          this.logger.log('SMTP server is ready to send emails');
+          resolve();
+        }
+      });
     });
   }
 
@@ -546,6 +576,7 @@ export class EmailService implements IEmailService {
    */
   async processQueuedEmail(data: any): Promise<void> {
     const { emailId, to, subject, template, context, options } = data;
+    this.logger.debug(`Starting to process email ${emailId} to ${to}`);
 
     try {
       // Update status to processing
@@ -556,10 +587,10 @@ export class EmailService implements IEmailService {
           attempts: () => '"attempts" + 1',
         },
       );
-
+      this.logger.debug(`Compiling template ${template}`);
       // Compile template
       const html = await this.compileTemplate(template, context);
-
+      this.logger.debug(`Template compiled successfully`);
       // Prepare mail options
       const mailOptions: nodemailer.SendMailOptions = {
         from: options.from || this.defaultFromEmail,

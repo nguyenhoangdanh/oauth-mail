@@ -13,7 +13,7 @@ export class LoginDto {
 
   @ApiProperty({
     description: 'User password',
-    example: 'StrongP@ssw0rd',
+    example: 'P@ssword123',
   })
   @IsString()
   @IsNotEmpty({ message: 'Password is required' })

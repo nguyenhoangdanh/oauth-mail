@@ -22,7 +22,7 @@ export class UpdateUserDto {
 
   @ApiProperty({
     description: 'User password',
-    example: 'StrongP@ssw0rd',
+    example: 'P@ssword123',
     minLength: 8,
     required: false,
   })
