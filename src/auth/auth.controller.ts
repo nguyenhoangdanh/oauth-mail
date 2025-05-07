@@ -28,6 +28,7 @@ import { User } from '../users/entities/user.entity';
 import { LoginDto } from './dto/login.dto';
 import { MagicLinkDto } from './dto/magic-link.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -54,8 +55,126 @@ export class AuthController {
   })
   @UseGuards(AuthGuard('local'))
   @Post('login')
-  async login(@Body() loginDto: LoginDto, @Req() req) {
-    return this.authService.login(loginDto, req);
+  async login(
+    @Body() loginDto: LoginDto,
+    @Req() req,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { accessToken, refreshToken, expiresAt, refreshExpiresAt, user } =
+      await this.authService.login(loginDto, req);
+
+    // Set HTTP-only cookie with the access token
+    res.cookie('accessToken', accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      maxAge: expiresAt * 1000,
+      path: '/', // Set path to root
+      domain: 'localhost', // Explicitly set domain (optional, might help)
+    });
+
+    res.cookie('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      maxAge: refreshExpiresAt * 1000,
+      path: '/', // Set path to root instead of '/auth/refresh-token'
+      domain: 'localhost', // Explicitly set domain (optional, might help)
+    });
+
+    return {
+      success: true,
+      user,
+      accessToken,
+      refreshToken, // Include this in the response only once during login
+      expiresAt,
+    };
+  }
+
+  @Get('verify-auth')
+  async verifyAuth(@Req() req) {
+    try {
+      // The JwtAuthGuard will verify the token from cookies
+      // If we get here, the token is valid
+      return {
+        authenticated: true,
+        // Return minimal user info
+        user: {
+          id: req.user.sub,
+          email: req.user.email,
+          roles: req.user.roles || [],
+        },
+      };
+    } catch (error) {
+      console.log('error', error);
+      return { authenticated: false };
+    }
+  }
+
+  @ApiOperation({ summary: 'Refresh access token' })
+  @ApiResponse({
+    status: 200,
+    description: 'Token refreshed successfully',
+  })
+  @Post('refresh-token')
+  async refreshToken(
+    @Body() refreshTokenDto: RefreshTokenDto,
+    @Req() req,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { accessToken, expiresAt, user } =
+      await this.authService.refreshToken(refreshTokenDto.refreshToken, req);
+
+    // Set HTTP-only cookie with the new token
+    res.cookie('accessToken', accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      maxAge: expiresAt * 1000, // Convert seconds to milliseconds
+    });
+
+    return {
+      success: true,
+      user,
+      accessToken,
+      expiresAt,
+    };
+  }
+
+  @ApiOperation({ summary: 'Refresh access token using cookie' })
+  @ApiResponse({
+    status: 200,
+    description: 'Token refreshed successfully',
+  })
+  @Post('refresh')
+  async refreshFromCookie(
+    @Req() req,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    // Get refresh token from cookie
+    const refreshToken = req.cookies.refreshToken;
+
+    if (!refreshToken) {
+      throw new UnauthorizedException('No refresh token provided');
+    }
+
+    const { accessToken, expiresAt, user } =
+      await this.authService.refreshToken(refreshToken, req);
+
+    // Set HTTP-only cookie with the new token
+    res.cookie('accessToken', accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      maxAge: expiresAt * 1000, // Convert seconds to milliseconds
+    });
+
+    return {
+      success: true,
+      user,
+      accessToken,
+      expiresAt,
+    };
   }
 
   @ApiOperation({ summary: 'Send a magic link for passwordless login' })
@@ -147,15 +266,20 @@ export class AuthController {
   })
   @UseGuards(JwtAuthGuard)
   @Post('logout')
-  async logout(@Req() req) {
+  async logout(@Req() req, @Res({ passthrough: true }) res: Response) {
     // Invalidate the session
     const sessionId = req.user.sessionId;
     if (!sessionId) {
       throw new UnauthorizedException('Invalid session');
     }
 
-    // Update session in database
-    // This would typically be handled by your session service
+    // Use the authService to invalidate the session
+    await this.authService.invalidateSession(sessionId);
+
+    // Clear cookies
+    res.clearCookie('accessToken');
+    res.clearCookie('refreshToken', { path: '/api/auth' });
+
     return { success: true, message: 'Logged out successfully' };
   }
 

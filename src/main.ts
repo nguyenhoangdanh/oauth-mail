@@ -49,9 +49,10 @@ async function bootstrap() {
     );
 
     // Enable CORS
-    const corsOrigins = configService.get<string>('CORS_ORIGINS', '*');
+    // const corsOrigins = configService.get<string>('CORS_ORIGINS', '*');
     app.enableCors({
-      origin: corsOrigins === '*' ? '*' : corsOrigins.split(','),
+      // origin: corsOrigins === '*' ? '*' : corsOrigins.split(','),
+      origin: ['http://localhost:3000'], // Explicitly allow your Next.js app
       methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
       credentials: true,
       allowedHeaders: 'Content-Type,Accept,Authorization',

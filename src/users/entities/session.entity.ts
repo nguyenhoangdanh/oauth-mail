@@ -37,6 +37,12 @@ export class Session {
   expiresAt: Date;
 
   @Column({ nullable: true })
+  refreshToken: string;
+
+  @Column({ nullable: true })
+  refreshTokenExpiresAt: Date;
+
+  @Column({ nullable: true })
   lastActiveAt: Date;
 
   @ManyToOne(() => User, (user) => user.sessions, { onDelete: 'CASCADE' })

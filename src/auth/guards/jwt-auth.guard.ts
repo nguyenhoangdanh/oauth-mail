@@ -10,60 +10,124 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Session } from 'src/users/entities/session.entity';
 import { Request } from 'express';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
   constructor(
     private jwtService: JwtService,
+    private configService: ConfigService,
     @InjectRepository(Session)
     private sessionRepository: Repository<Session>,
   ) {
     super();
   }
 
-  async canActivate(context: ExecutionContext): Promise<boolean> {
-    const canActivate = await super.canActivate(context);
-
-    if (!canActivate) {
-      return false;
+  private extractTokenFromRequest(request: Request): string | undefined {
+    // Check for cookie first (given precedence)
+    if (request.cookies && request.cookies.accessToken) {
+      // Log for debugging
+      console.log('Found token in cookies');
+      return request.cookies.accessToken;
     }
 
+    // Then check Authorization header
+    const authHeader = request.headers.authorization;
+    if (authHeader && authHeader.split(' ')[0] === 'Bearer') {
+      console.log('Found token in Authorization header');
+      return authHeader.split(' ')[1];
+    }
+
+    return undefined;
+  }
+
+  // And update your canActivate method
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    // Extract and verify JWT from request
     const request = context.switchToHttp().getRequest();
+    const token = this.extractTokenFromRequest(request);
 
-    const user = request.user;
+    if (!token) {
+      throw new UnauthorizedException('No authentication token provided');
+    }
 
-    // Validate that the session exists and is active
-    if (user && user.sessionId) {
-      const session = await this.sessionRepository.findOne({
-        where: {
-          id: user.sessionId,
-          isActive: true,
-        },
+    try {
+      // Verify the JWT
+      const payload = await this.jwtService.verifyAsync(token, {
+        secret: this.configService.get<string>('JWT_SECRET'),
       });
 
-      if (!session) {
-        throw new UnauthorizedException('Session is invalid or expired');
+      // Attach the user to the request
+      request.user = payload;
+
+      // Check session
+      if (payload.sessionId) {
+        const session = await this.sessionRepository.findOne({
+          where: {
+            id: payload.sessionId,
+            isActive: true,
+          },
+        });
+
+        if (!session) {
+          throw new UnauthorizedException('Session is invalid or expired');
+        }
+
+        // Update the last active timestamp
+        session.lastActiveAt = new Date();
+        await this.sessionRepository.save(session);
       }
 
-      // Update the last active timestamp
-      session.lastActiveAt = new Date();
-      await this.sessionRepository.save(session);
+      return true;
+    } catch (error: any) {
+      console.log('error', error);
+      throw new UnauthorizedException('Invalid authentication token');
     }
-
-    return true;
   }
 
-  handleRequest(err, user) {
-    // Nếu có lỗi hoặc không có user
-    if (err || !user) {
-      // Log chi tiết hơn
-      console.error(
-        'Authentication failed:',
-        err || 'No user returned from strategy',
-      );
-      throw err || new UnauthorizedException('Authentication failed');
-    }
+  // async canActivate(context: ExecutionContext): Promise<boolean> {
+  //   const canActivate = await super.canActivate(context);
 
-    return user;
-  }
+  //   if (!canActivate) {
+  //     return false;
+  //   }
+
+  //   const request = context.switchToHttp().getRequest();
+
+  //   const user = request.user;
+
+  //   // Validate that the session exists and is active
+  //   if (user && user.sessionId) {
+  //     const session = await this.sessionRepository.findOne({
+  //       where: {
+  //         id: user.sessionId,
+  //         isActive: true,
+  //       },
+  //     });
+
+  //     if (!session) {
+  //       throw new UnauthorizedException('Session is invalid or expired');
+  //     }
+
+  //     // Update the last active timestamp
+  //     session.lastActiveAt = new Date();
+  //     await this.sessionRepository.save(session);
+  //   }
+
+  //   return true;
+  // }
+
+  // handleRequest(err, user) {
+  //   // Nếu có lỗi hoặc không có user
+  //   if (err || !user) {
+  //     // Log chi tiết hơn
+  //     console.error(
+  //       'Authentication failed:',
+  //       err || 'No user returned from strategy',
+  //     );
+  //     throw err || new UnauthorizedException('Authentication failed');
+  //   }
+
+  //   return user;
+  // }
 }

@@ -600,6 +600,12 @@ export class EmailService implements IEmailService {
         ...options,
       };
 
+      mailOptions.headers = {
+        'Message-ID': `<${emailId}@dnsecure>`,
+        'List-Unsubscribe': `<${this.appUrl}/unsubscribe/${emailId}>`,
+        'X-Entity-Ref-ID': emailId,
+      };
+
       // Add tracking pixel if enabled
       if (options.trackOpens) {
         // Add tracking pixel
@@ -682,6 +688,92 @@ export class EmailService implements IEmailService {
 
       // Rethrow error for the queue to handle retries
       throw error;
+    }
+  }
+
+  private checkSpamContent(
+    subject: string,
+    htmlContent: string,
+  ): { score: number; warnings: string[] } {
+    const warnings = [];
+    let score = 0;
+
+    // Danh sách từ khóa spam phổ biến
+    const spamKeywords = [
+      'free',
+      'miễn phí',
+      'giảm giá',
+      '$$$',
+      'best price',
+      'buy now',
+      'mua ngay',
+      'click here',
+      'bấm vào đây',
+      'winner',
+      'guaranteed',
+      'đảm bảo',
+      'urgent',
+      'khẩn cấp',
+    ];
+
+    // Kiểm tra chủ đề
+    const subjectUppercase = (subject.match(/[A-Z]/g) || []).length;
+    const subjectTotal = subject.length;
+    if (subjectUppercase / subjectTotal > 0.3) {
+      score += 1;
+      warnings.push('Chữ viết hoa quá nhiều trong tiêu đề');
+    }
+
+    // Kiểm tra nội dung cho các từ khóa spam
+    const content = htmlContent.replace(/<[^>]*>/g, ' '); // Loại bỏ HTML
+    spamKeywords.forEach((keyword) => {
+      const regex = new RegExp(`\\b${keyword}\\b`, 'gi');
+      const matches = content.match(regex);
+      if (matches && matches.length > 0) {
+        score += 0.5;
+        warnings.push(
+          `Từ khóa spam tiềm năng: "${keyword}" (${matches.length} lần)`,
+        );
+      }
+    });
+
+    // Kiểm tra dấu chấm than quá nhiều
+    const exclamationCount = (content.match(/!/g) || []).length;
+    if (exclamationCount > 3) {
+      score += 0.5;
+      warnings.push(`Quá nhiều dấu chấm than (${exclamationCount})`);
+    }
+
+    return { score, warnings };
+  }
+
+  async handleBounce(emailId: string, reason: string): Promise<void> {
+    // Cập nhật trạng thái email
+    await this.emailLogRepository.update(
+      { emailId },
+      {
+        status: EmailStatus.BOUNCED,
+        error: reason,
+        lastStatusAt: new Date(),
+      },
+    );
+
+    // Lấy thông tin email
+    const emailLog = await this.emailLogRepository.findOne({
+      where: { emailId },
+    });
+
+    if (emailLog) {
+      // Thêm địa chỉ email vào danh sách đen hoặc đánh dấu là không hợp lệ
+      // trong cơ sở dữ liệu người dùng của bạn
+      this.logger.warn(`Email ${emailLog.to} bị bounce: ${reason}`);
+
+      // Thông báo cho quản trị viên
+      this.eventEmitter.emit('email.bounced', {
+        emailId,
+        to: emailLog.to,
+        reason,
+      });
     }
   }
 }
