@@ -316,7 +316,7 @@ export class EmailService implements IEmailService {
     name: string,
     token: string,
   ): Promise<string> {
-    const resetLink = `${this.appUrl}/auth/reset-password/${token}`;
+    const resetLink = `${this.appUrl}/reset-password?token=${token}`;
     const emailId = uuidv4();
     await this.queueEmail(
       email,
@@ -544,6 +544,7 @@ export class EmailService implements IEmailService {
   ): Promise<string> {
     try {
       // Check template cache first
+      console.log('template name----------->', templateName);
       if (!this.templateCache.has(templateName)) {
         // Get template from database
         const templateEntity = await this.emailTemplateRepository.findOne({
@@ -557,6 +558,9 @@ export class EmailService implements IEmailService {
             'templates/emails',
             `${templateName}.hbs`,
           );
+
+          this.logger.log(`Looking for template at: ${templatePath}`);
+          this.logger.log(`Template exists: ${fs.existsSync(templatePath)}`);
 
           if (fs.existsSync(templatePath)) {
             this.logger.warn(

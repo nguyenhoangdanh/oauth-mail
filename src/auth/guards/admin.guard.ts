@@ -5,47 +5,36 @@ import {
   ExecutionContext,
   UnauthorizedException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Observable } from 'rxjs';
 import { JwtService } from '@nestjs/jwt';
-import { Request } from 'express';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class AdminGuard implements CanActivate {
   constructor(
-    private readonly jwtService: JwtService,
-    private readonly configService: ConfigService,
+    private jwtService: JwtService,
+    private configService: ConfigService,
   ) {}
 
-  async canActivate(context: ExecutionContext): Promise<boolean> {
+  canActivate(
+    context: ExecutionContext,
+  ): boolean | Promise<boolean> | Observable<boolean> {
     const request = context.switchToHttp().getRequest();
-    const token = this.extractTokenFromHeader(request);
+    const user = request.user;
 
-    if (!token) {
-      throw new UnauthorizedException('No authentication token provided');
+    // Kiểm tra nếu người dùng đã được xác thực bởi JwtAuthGuard
+    if (!user) {
+      throw new UnauthorizedException('User not authenticated');
     }
 
-    try {
-      const payload = await this.jwtService.verifyAsync(token, {
-        secret: this.configService.get<string>('JWT_SECRET'),
-      });
-
-      // Check if the user has admin role
-      if (!payload.roles || !payload.roles.includes('admin')) {
-        throw new UnauthorizedException('Insufficient permissions');
-      }
-
-      // Attach user to request
-      request.user = payload;
-
-      return true;
-    } catch (error) {
-      console.log('error', error);
-      throw new UnauthorizedException('Invalid authentication token');
+    // Kiểm tra nếu người dùng có vai trò admin hoặc superadmin
+    if (
+      !user.roles ||
+      (!user.roles.includes('admin') && !user.roles.includes('superadmin'))
+    ) {
+      throw new UnauthorizedException('Insufficient permissions');
     }
-  }
 
-  private extractTokenFromHeader(request: Request): string | undefined {
-    const [type, token] = request.headers.authorization?.split(' ') ?? [];
-    return type === 'Bearer' ? token : undefined;
+    return true;
   }
 }

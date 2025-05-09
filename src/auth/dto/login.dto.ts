@@ -8,7 +8,7 @@ import {
   IsString,
   ValidateNested,
 } from 'class-validator';
-class DeviceInfoDto {
+export class DeviceInfoDto {
   @ApiProperty()
   @IsString()
   language: string;
@@ -26,7 +26,7 @@ class DeviceInfoDto {
   userAgent: string;
 }
 
-class SecurityInfoDto {
+export class SecurityInfoDto {
   @ApiProperty()
   @IsString()
   timestamp: string;

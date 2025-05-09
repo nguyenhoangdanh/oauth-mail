@@ -12,6 +12,8 @@ import { Session } from 'src/users/entities/session.entity';
 import { Request } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { AuditService } from 'src/audit/audit.service';
+import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { Reflector } from '@nestjs/core';
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
@@ -21,6 +23,7 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     @InjectRepository(Session)
     private sessionRepository: Repository<Session>,
     private auditService: AuditService,
+    private reflector: Reflector,
   ) {
     super();
   }
@@ -45,6 +48,17 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
 
   // And update your canActivate method
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    // Check if route is marked as public
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
+    // If public, allow access without authentication
+    if (isPublic) {
+      return true;
+    }
+
     // Extract and verify JWT from request
     const request = context.switchToHttp().getRequest();
     const token = this.extractTokenFromRequest(request);

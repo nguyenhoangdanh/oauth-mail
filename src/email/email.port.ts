@@ -87,6 +87,12 @@ export interface IEmailService {
    * @param token Magic link token
    */
   sendMagicLinkEmail(email: string, name: string, token: string): Promise<void>;
+
+  sendPasswordResetEmail(
+    email: string,
+    name: string,
+    token: string,
+  ): Promise<string>;
 }
 
 /**

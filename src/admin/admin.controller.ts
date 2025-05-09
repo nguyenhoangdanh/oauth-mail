@@ -1,3 +1,102 @@
+// src/admin/admin-user.controller.ts
+import {
+  Controller,
+  Post,
+  Body,
+  UseGuards,
+  Param,
+  Patch,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { AdminGuard } from '../auth/guards/admin.guard';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
+import { GetUser } from '../auth/decorators/get-user.decorator';
+import { User } from '../users/entities/user.entity';
+import { AuthService } from '../auth/auth.service';
+import { AdminChangePasswordDto } from '../auth/dto/admin-change-password.dto';
+import { AccountStatusDto } from '../auth/dto/account-status.dto';
+import { EmailTemplateSyncService } from 'src/email/email-template-sync.service';
+
+@ApiTags('admin')
+@Controller('admin/users')
+@UseGuards(JwtAuthGuard, AdminGuard)
+@ApiBearerAuth()
+export class AdminUserController {
+  constructor(private authService: AuthService) {}
+
+  @ApiOperation({ summary: 'Admin thay đổi mật khẩu người dùng' })
+  @ApiResponse({
+    status: 200,
+    description: 'Mật khẩu người dùng đã được thay đổi thành công',
+  })
+  @HttpCode(HttpStatus.OK)
+  @Post(':id/change-password')
+  async adminChangeUserPassword(
+    @GetUser() admin: User,
+    @Param('id') userId: string,
+    @Body() adminChangePasswordDto: AdminChangePasswordDto,
+  ) {
+    await this.authService.adminChangeUserPassword(
+      admin.id,
+      userId,
+      adminChangePasswordDto.newPassword,
+    );
+    return {
+      success: true,
+      message: 'Mật khẩu người dùng đã được thay đổi thành công',
+    };
+  }
+
+  @ApiOperation({
+    summary: 'Thay đổi trạng thái tài khoản người dùng (khóa/mở khóa)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Trạng thái tài khoản người dùng đã được thay đổi thành công',
+  })
+  @HttpCode(HttpStatus.OK)
+  @Patch(':id/status')
+  async changeAccountStatus(
+    @GetUser() admin: User,
+    @Param('id') userId: string,
+    @Body() accountStatusDto: AccountStatusDto,
+  ) {
+    await this.authService.changeAccountStatus(
+      admin.id,
+      userId,
+      accountStatusDto.isActive,
+    );
+    return {
+      success: true,
+      message: 'Trạng thái tài khoản người dùng đã được thay đổi thành công',
+    };
+  }
+}
+
+@ApiTags('admin/email-templates')
+@Controller('admin/email-templates')
+@UseGuards(JwtAuthGuard, AdminGuard)
+@ApiBearerAuth()
+export class EmailTemplateController {
+  constructor(private emailTemplateSyncService: EmailTemplateSyncService) {}
+
+  @Post('sync/:templateName')
+  async syncTemplate(@Param('templateName') templateName: string) {
+    await this.emailTemplateSyncService.updateSpecificTemplate(templateName);
+    return {
+      success: true,
+      message: `Template ${templateName} updated successfully`,
+    };
+  }
+}
+
 // // admin.controller.ts
 
 // import {

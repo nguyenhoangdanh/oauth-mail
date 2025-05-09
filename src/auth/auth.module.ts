@@ -25,9 +25,11 @@ import { MagicLinkService } from './magic-link.service';
 import { PasswordPolicyService } from './password-policy.service';
 import { AccountLockoutService } from './account-lockout.service';
 import { PendingRegistration } from './dto/verify-registration.dto';
+import { UsersModule } from 'src/users/users.module';
 
 @Module({
   imports: [
+    forwardRef(() => UsersModule),
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],

@@ -89,6 +89,31 @@ export class EmailTemplateSyncService implements OnModuleInit {
     }
   }
 
+  // Thêm vào EmailTemplateSyncService
+
+  async updateSpecificTemplate(templateName: string): Promise<void> {
+    const templatePath = path.join(this.templateDir, `${templateName}.hbs`);
+
+    if (!fs.existsSync(templatePath)) {
+      this.logger.warn(`Template file not found: ${templatePath}`);
+      return;
+    }
+
+    const existingTemplate = await this.emailTemplateRepository.findOne({
+      where: { name: templateName },
+    });
+
+    if (existingTemplate) {
+      // Update existing template
+      await this.updateTemplateContent(existingTemplate, templatePath);
+    } else {
+      // Create new template
+      await this.createTemplateFromFile(templateName, templatePath);
+    }
+
+    this.logger.log(`Template ${templateName} updated successfully`);
+  }
+
   /**
    * Handle partial templates
    */

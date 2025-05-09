@@ -18,6 +18,9 @@ import { ScheduleModule } from '@nestjs/schedule';
 // import { SecurityMiddleware } from './common/middleware/security.middleware';
 import { BullModule } from '@nestjs/bullmq';
 import { HealthModule } from './health/health.module';
+import { AdminModule } from './admin/admin.module';
+import { UsersModule } from './users/users.module';
+import { AuditModule } from './audit/audit.module';
 
 @Module({
   imports: [
@@ -90,10 +93,13 @@ import { HealthModule } from './health/health.module';
       }),
     }),
 
-    // Feature modules - Ensure correct order to resolve dependencies
-    AuthModule,
+    // Feature modules - Đảm bảo thứ tự đúng để giải quyết các phụ thuộc
+    UsersModule, // Import UsersModule trước AuthModule
+    AuthModule, // Import AuthModule trước AdminModule
     EmailModule,
-    WebhookModule, // WebhookModule should come after EmailModule
+    AuditModule, // Import AuditModule trước AdminModule
+    AdminModule, // Import AdminModule sau khi đã import các module phụ thuộc
+    WebhookModule,
   ],
   controllers: [AppController],
   providers: [

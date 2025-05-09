@@ -35,6 +35,11 @@ import {
   ResendVerificationCodeDto,
   VerifyRegistrationDto,
 } from './dto/pending-registration.entity';
+import { ChangePasswordDto } from './dto/change-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import { ForgetPasswordDto } from './dto/forget-password.dto';
+import { UsersService } from 'src/users/user.service';
+import { Public } from './decorators/public.decorator';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -43,6 +48,7 @@ export class AuthController {
     private authService: AuthService,
     private configService: ConfigService,
     private magicLinkService: MagicLinkService,
+    private readonly usersService: UsersService,
   ) {}
 
   @ApiOperation({ summary: 'Register a new user' })
@@ -498,5 +504,71 @@ export class AuthController {
   @Delete('sessions/:id')
   async revokeSession(@Param('id') id: string, @GetUser() user: User) {
     return this.authService.revokeSession(id, user.id);
+  }
+
+  @ApiOperation({ summary: 'Quên mật khẩu' })
+  @ApiResponse({
+    status: 200,
+    description: 'Email đặt lại mật khẩu đã được gửi thành công',
+  })
+  @HttpCode(HttpStatus.OK)
+  @Post('forgot-password')
+  async forgotPassword(
+    @Body() forgetPasswordDto: ForgetPasswordDto,
+    @Req() req,
+  ) {
+    await this.authService.forgotPassword(forgetPasswordDto.email, req);
+    return {
+      success: true,
+      message:
+        'Nếu email của bạn đã đăng ký, bạn sẽ nhận được email đặt lại mật khẩu',
+    };
+  }
+
+  // Thêm endpoint đặt lại mật khẩu
+  @ApiOperation({ summary: 'Đặt lại mật khẩu' })
+  @ApiResponse({
+    status: 200,
+    description: 'Mật khẩu đã được đặt lại thành công',
+  })
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Post('reset-password')
+  async resetPassword(@Body() resetPasswordDto: ResetPasswordDto, @Req() req) {
+    await this.authService.resetPassword(
+      req,
+      resetPasswordDto.token,
+      resetPasswordDto.password,
+      resetPasswordDto.securityInfo,
+    );
+    return {
+      success: true,
+      message: 'Mật khẩu đã được đặt lại thành công',
+    };
+  }
+
+  // Thêm endpoint thay đổi mật khẩu cho người dùng đã đăng nhập
+  @ApiOperation({ summary: 'Thay đổi mật khẩu (người dùng đã đăng nhập)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Mật khẩu đã được thay đổi thành công',
+  })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @Post('change-password')
+  async changePassword(
+    @GetUser() user: User,
+    @Body() changePasswordDto: ChangePasswordDto,
+  ) {
+    await this.usersService.changePassword(
+      user.id,
+      changePasswordDto.currentPassword,
+      changePasswordDto.newPassword,
+    );
+    return {
+      success: true,
+      message: 'Mật khẩu đã được thay đổi thành công',
+    };
   }
 }

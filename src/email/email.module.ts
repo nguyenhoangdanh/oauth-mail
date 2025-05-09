@@ -65,6 +65,6 @@ import { EmailEventListener } from './email-event.listener';
     EmailEventListener,
     EmailTemplateSyncService,
   ],
-  exports: [EMAIL_SERVICE, EmailService],
+  exports: [EMAIL_SERVICE, EmailService, EmailTemplateSyncService],
 })
 export class EmailModule {}

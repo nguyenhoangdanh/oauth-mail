@@ -24,7 +24,7 @@ import { Session } from 'src/users/entities/session.entity';
 import { UsersService } from 'src/users/user.service';
 import { ParsedRequest } from './interfaces/parsed-request.interface';
 import { OAuthUserDto } from './dto/oauth-user.dto';
-import { LoginDto } from './dto/login.dto';
+import { LoginDto, SecurityInfoDto } from './dto/login.dto';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AuditService } from 'src/audit/audit.service';
 import { Request } from 'express';
@@ -750,81 +750,186 @@ export class AuthService {
     return userWithoutPassword;
   }
 
-  // async sendMagicLink(email: string, req: Request): Promise<void> {
-  //   // Find user or create a pending user
-  //   let user = await this.usersRepository.findOne({ where: { email } });
+  async forgotPassword(email: string, req: ParsedRequest): Promise<void> {
+    // Tìm kiếm người dùng
+    const user = await this.usersRepository.findOne({ where: { email } });
 
-  //   if (!user) {
-  //     // Create a pending user
-  //     user = this.usersRepository.create({
-  //       email,
-  //       emailVerified: false,
-  //       roles: ['user'],
-  //     });
-  //     await this.usersRepository.save(user);
-  //   }
+    // Ngay cả khi không tìm thấy người dùng, vẫn trả về thành công để tránh tiết lộ thông tin
+    if (!user) {
+      this.logger.log(
+        `Forgot password request for non-existent email: ${email}`,
+      );
+      return;
+    }
 
-  //   // Create a token that expires in 15 minutes
-  //   const token = await this.createToken(user.id, 'magic_link', 0.25);
+    // Kiểm tra nếu tài khoản bị khóa
+    if (!user.isActive) {
+      this.logger.log(`Forgot password request for inactive account: ${email}`);
+      return;
+    }
 
-  //   // Generate magic link URL
-  //   const magicLinkUrl = `${this.configService.get('APP_URL')}/auth/verify-magic-link/${token.token}`;
+    // Tạo token đặt lại mật khẩu có thời hạn 1 giờ
+    const token = await this.createToken(user.id, 'password_reset', 1);
 
-  //   // Send magic link email
-  //   await this.emailService.sendMagicLinkEmail(
-  //     email,
-  //     user.fullName,
-  //     token.token,
-  //   );
+    // Gửi email chứa liên kết đặt lại mật khẩu
+    await this.emailService.sendPasswordResetEmail(
+      user.email,
+      user.fullName,
+      token.token,
+    );
 
-  //   // Log this action
-  //   await this.auditService.log({
-  //     action: 'magic_link_sent',
-  //     userId: user.id,
-  //     ipAddress: req.ip,
-  //     userAgent: req.headers['user-agent'],
-  //     metadata: { email },
-  //   });
-  // }
+    // Ghi nhật ký hành động này
+    await this.auditService.log({
+      action: 'password_reset_requested',
+      userId: user.id,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'] as string,
+    });
+  }
 
-  // async verifyMagicLink(
-  //   token: string,
-  //   req: Request,
-  // ): Promise<{ accessToken: string; refreshToken: string; user: any }> {
-  //   // Find token in database
-  //   const tokenRecord = await this.tokenRepository.findOne({
-  //     where: { token, type: 'magic_link', used: false },
-  //     relations: ['user'],
-  //   });
+  // Thêm phương thức để đặt lại mật khẩu
+  async resetPassword(
+    req: ParsedRequest,
+    token: string,
+    newPassword: string,
+    securityInfo?: SecurityInfoDto,
+  ): Promise<void> {
+    // Tìm token trong cơ sở dữ liệu
+    const tokenRecord = await this.tokenRepository.findOne({
+      where: { token, type: 'password_reset', used: false },
+      relations: ['user'],
+    });
 
-  //   if (!tokenRecord || tokenRecord.expiresAt < new Date()) {
-  //     throw new UnauthorizedException('Invalid or expired magic link');
-  //   }
+    if (!tokenRecord || tokenRecord.expiresAt < new Date()) {
+      throw new UnauthorizedException('Invalid or expired reset token');
+    }
 
-  //   // Mark token as used
-  //   tokenRecord.used = true;
-  //   await this.tokenRepository.save(tokenRecord);
+    // Đánh dấu token đã sử dụng
+    tokenRecord.used = true;
+    await this.tokenRepository.save(tokenRecord);
 
-  //   // Get user
-  //   const user = tokenRecord.user;
+    // Lấy thông tin người dùng
+    const user = tokenRecord.user;
 
-  //   // If email wasn't verified before, verify it now
-  //   if (!user.emailVerified) {
-  //     user.emailVerified = true;
-  //     await this.usersRepository.save(user);
-  //   }
+    // Kiểm tra người dùng có hoạt động không
+    if (!user.isActive) {
+      throw new UnauthorizedException('User account is locked or inactive');
+    }
 
-  //   // Create session
-  //   const { accessToken, refreshToken } = await this.createSession(user, req);
+    // Cập nhật mật khẩu
+    user.password = newPassword;
+    await this.usersRepository.save(user);
 
-  //   // Log successful login
-  //   await this.auditService.log({
-  //     action: 'login_magic_link',
-  //     userId: user.id,
-  //     ipAddress: req.ip,
-  //     userAgent: req.headers['user-agent'],
-  //   });
+    // Vô hiệu hóa tất cả các phiên hiện tại của người dùng
+    await this.revokeAllSessions(user.id);
 
-  //   return { accessToken, refreshToken, user: this.sanitizeUser(user) };
-  // }
+    this.logger.log(
+      `Resset password from device: ${JSON.stringify(securityInfo)}`,
+    );
+
+    // Ghi nhật ký hành động này
+    await this.auditService.log({
+      action: 'password_reset_completed',
+      userId: user.id,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'] as string,
+    });
+  }
+
+  // Sửa phương thức adminChangeUserPassword
+  async adminChangeUserPassword(
+    adminId: string,
+    userId: string,
+    newPassword: string,
+  ): Promise<void> {
+    // Tìm admin
+    const admin = await this.usersRepository.findOne({
+      where: { id: adminId },
+    });
+
+    if (
+      !admin ||
+      !admin.roles.some((role) => ['admin', 'superadmin'].includes(role))
+    ) {
+      throw new UnauthorizedException('Insufficient permissions');
+    }
+
+    // Tìm người dùng cần thay đổi mật khẩu
+    const user = await this.usersRepository.findOne({ where: { id: userId } });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Kiểm tra quyền: admin không thể thay đổi mật khẩu của admin hoặc superadmin khác
+    if (user.roles.includes('admin') || user.roles.includes('superadmin')) {
+      if (!admin.roles.includes('superadmin')) {
+        throw new UnauthorizedException(
+          'Cannot change password of an admin or superadmin',
+        );
+      }
+    }
+
+    // Cập nhật mật khẩu
+    user.password = newPassword;
+    await this.usersRepository.save(user);
+
+    // Ghi nhật ký hành động này
+    await this.auditService.log({
+      action: 'admin_changed_user_password',
+      userId: adminId,
+      metadata: { targetUserId: userId }, // Sửa: đặt targetUserId vào metadata
+    });
+  }
+
+  // Sửa phương thức changeAccountStatus
+  async changeAccountStatus(
+    adminId: string,
+    userId: string,
+    isActive: boolean,
+  ): Promise<void> {
+    // Tìm admin
+    const admin = await this.usersRepository.findOne({
+      where: { id: adminId },
+    });
+
+    if (
+      !admin ||
+      !admin.roles.some((role) => ['admin', 'superadmin'].includes(role))
+    ) {
+      throw new UnauthorizedException('Insufficient permissions');
+    }
+
+    // Tìm người dùng cần thay đổi trạng thái
+    const user = await this.usersRepository.findOne({ where: { id: userId } });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Kiểm tra quyền: admin không thể khóa tài khoản của admin hoặc superadmin khác
+    if (user.roles.includes('admin') || user.roles.includes('superadmin')) {
+      if (!admin.roles.includes('superadmin')) {
+        throw new UnauthorizedException(
+          'Cannot change status of an admin or superadmin',
+        );
+      }
+    }
+
+    // Cập nhật trạng thái tài khoản
+    user.isActive = isActive;
+    await this.usersRepository.save(user);
+
+    // Nếu khóa tài khoản, vô hiệu hóa tất cả các phiên
+    if (!isActive) {
+      await this.revokeAllSessions(user.id);
+    }
+
+    // Ghi nhật ký hành động này
+    await this.auditService.log({
+      action: isActive ? 'account_unlocked' : 'account_locked',
+      userId: adminId,
+      metadata: { targetUserId: userId }, // Sửa: đặt targetUserId vào metadata
+    });
+  }
 }
