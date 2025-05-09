@@ -13,7 +13,9 @@ export interface ParsedRequest extends Request {
   startTime?: number; // Timestamp for request timing
   user?: any; // User information after authentication
   roles?: string[]; // User roles for authorization
-
+  headers: {
+    [key: string]: string | string[] | undefined;
+  };
   // Additional properties for tracking
   trackingInfo?: {
     ipAddress?: string;

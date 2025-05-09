@@ -15,8 +15,9 @@ import { DatabaseModule } from './database/database.module';
 import { validate } from './config/env.validation';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
-import { SecurityMiddleware } from './common/middleware/security.middleware';
+// import { SecurityMiddleware } from './common/middleware/security.middleware';
 import { BullModule } from '@nestjs/bullmq';
+import { HealthModule } from './health/health.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { BullModule } from '@nestjs/bullmq';
 
     // Database connection
     DatabaseModule,
+    HealthModule,
 
     // Cache configuration
     AppCacheModule.register(),
@@ -111,7 +113,7 @@ import { BullModule } from '@nestjs/bullmq';
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     // Apply security middleware to all routes
-    consumer.apply(SecurityMiddleware).forRoutes('*');
+    // consumer.apply(SecurityMiddleware).forRoutes('*');
   }
 }
 

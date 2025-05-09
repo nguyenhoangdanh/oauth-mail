@@ -19,6 +19,12 @@ import { Token } from 'src/users/entities/token.entity';
 import { Session } from 'src/users/entities/session.entity';
 import { UsersService } from 'src/users/user.service';
 import { EmailModule } from 'src/email/email.module';
+import { AuditModule } from 'src/audit/audit.module';
+import { EventEmitterModule } from '@nestjs/event-emitter';
+import { MagicLinkService } from './magic-link.service';
+import { PasswordPolicyService } from './password-policy.service';
+import { AccountLockoutService } from './account-lockout.service';
+import { PendingRegistration } from './dto/verify-registration.dto';
 
 @Module({
   imports: [
@@ -33,9 +39,17 @@ import { EmailModule } from 'src/email/email.module';
         },
       }),
     }),
-    TypeOrmModule.forFeature([User, UserOAuth, Token, Session]),
+    TypeOrmModule.forFeature([
+      User,
+      UserOAuth,
+      Token,
+      Session,
+      PendingRegistration,
+    ]),
     ConfigModule,
     forwardRef(() => EmailModule),
+    AuditModule,
+    EventEmitterModule.forRoot(),
   ],
   controllers: [AuthController],
   providers: [
@@ -48,6 +62,9 @@ import { EmailModule } from 'src/email/email.module';
     GitHubStrategy,
     JwtAuthGuard,
     AdminGuard,
+    MagicLinkService,
+    PasswordPolicyService,
+    AccountLockoutService,
   ],
   exports: [AuthService, JwtModule, JwtAuthGuard, AdminGuard],
 })

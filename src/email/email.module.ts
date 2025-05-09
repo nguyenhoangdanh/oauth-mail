@@ -17,6 +17,9 @@ import { EmailStats } from './entities/email-stats.entity';
 import EventEmitter from 'events';
 import { AuthModule } from 'src/auth/auth.module';
 import { Session } from 'src/users/entities/session.entity';
+import { AuditModule } from 'src/audit/audit.module';
+import { EmailTemplateSyncService } from './email-template-sync.service';
+import { EmailEventListener } from './email-event.listener';
 
 @Module({
   imports: [
@@ -42,9 +45,11 @@ import { Session } from 'src/users/entities/session.entity';
     ConfigModule,
     EventEmitterModule,
     forwardRef(() => AuthModule),
+    AuditModule,
   ],
   controllers: [EmailController, EmailTemplateController],
   providers: [
+    EmailService,
     {
       provide: EMAIL_SERVICE,
       useClass: EmailService,
@@ -57,7 +62,9 @@ import { Session } from 'src/users/entities/session.entity';
       },
     },
     EmailQueue,
+    EmailEventListener,
+    EmailTemplateSyncService,
   ],
-  exports: [EMAIL_SERVICE],
+  exports: [EMAIL_SERVICE, EmailService],
 })
 export class EmailModule {}

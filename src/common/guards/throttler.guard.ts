@@ -1,3 +1,22 @@
+// // src/common/guards/throttler.guard.ts
+// import { Injectable } from '@nestjs/common';
+// import { ThrottlerGuard } from '@nestjs/throttler';
+// import { ExecutionContext } from '@nestjs/common';
+
+// @Injectable()
+// export class CustomThrottlerGuard extends ThrottlerGuard {
+//   getRequestResponse(context: ExecutionContext) {
+//     const req = context.switchToHttp().getRequest();
+//     const res = context.switchToHttp().getResponse();
+//     return { req, res };
+//   }
+
+//   protected getTracker(req: Record<string, any>): string {
+//     // Use forwarded for if using a reverse proxy
+//     return req.ips.length ? req.ips[0] : req.ip;
+//   }
+// }
+
 // src/common/guards/throttler.guard.ts
 import { Injectable, ExecutionContext } from '@nestjs/common';
 import {

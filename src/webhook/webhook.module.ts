@@ -12,6 +12,7 @@ import { EVENT_EMITTER_TOKEN } from '../common/events/event-emitter.di-token';
 import EventEmitter from 'events';
 import { AuthModule } from 'src/auth/auth.module';
 import { Session } from 'src/users/entities/session.entity';
+import { AuditModule } from 'src/audit/audit.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { Session } from 'src/users/entities/session.entity';
     }),
     ConfigModule,
     forwardRef(() => AuthModule),
+    AuditModule,
   ],
   controllers: [WebhookController],
   providers: [

@@ -14,6 +14,8 @@ import { EmailTemplate } from './entities/email-template.entity';
 // import { EVENT_EMITTER_TOKEN } from '../common/events/event-emitter.di-token';
 import { EventEmitter } from 'events';
 import { EVENT_EMITTER_TOKEN } from 'src/common/events/event-emitter.di-token';
+import path from 'path';
+import * as fs from 'fs';
 
 @Injectable()
 export class EmailService implements IEmailService {
@@ -275,6 +277,38 @@ export class EmailService implements IEmailService {
   }
 
   /**
+   * Send verification code email
+   */
+  async sendVerificationCode(
+    email: string,
+    name: string,
+    code: string,
+  ): Promise<string> {
+    const emailId = uuidv4();
+    await this.queueEmail(
+      email,
+      'Verify Your Registration',
+      'verification-code',
+      {
+        name: name || 'User',
+        verificationCode: code,
+        appName: this.configService.get<string>('APP_NAME', 'SecureMail'),
+        supportEmail: this.configService.get<string>(
+          'SUPPORT_EMAIL',
+          'support@securemail.com',
+        ),
+        expiresIn: '30 minutes',
+      },
+      {
+        tags: ['verification', 'registration'],
+        priority: 'high',
+        trackOpens: true,
+      },
+    );
+    return emailId;
+  }
+
+  /**
    * Send password reset email
    */
   async sendPasswordResetEmail(
@@ -517,17 +551,57 @@ export class EmailService implements IEmailService {
         });
 
         if (!templateEntity) {
-          throw new Error(
-            `Email template "${templateName}" not found or inactive`,
+          // Try to find template in filesystem as fallback
+          const templatePath = path.join(
+            process.cwd(),
+            'templates/emails',
+            `${templateName}.hbs`,
           );
+
+          if (fs.existsSync(templatePath)) {
+            this.logger.warn(
+              `Template "${templateName}" not found in database, loading from filesystem and creating in database...`,
+            );
+
+            const content = fs.readFileSync(templatePath, 'utf8');
+
+            // Create template in database
+            const newTemplate = this.emailTemplateRepository.create({
+              name: templateName,
+              content,
+              description: `Template for ${templateName.replace(/-/g, ' ')}`,
+              isActive: true,
+              version: 1,
+              category:
+                templateName.includes('auth') ||
+                templateName.includes('verification') ||
+                templateName.includes('password') ||
+                templateName.includes('magic-link')
+                  ? 'authentication'
+                  : 'notification',
+            });
+
+            await this.emailTemplateRepository.save(newTemplate);
+
+            // Make sure partials are registered before compiling
+            await this.registerPartials();
+
+            // Parse with Handlebars and cache
+            const template = Handlebars.compile(content);
+            this.templateCache.set(templateName, template);
+          } else {
+            throw new Error(
+              `Email template "${templateName}" not found in database or filesystem`,
+            );
+          }
+        } else {
+          // Make sure partials are registered before compiling
+          await this.registerPartials();
+
+          // Parse with Handlebars and cache
+          const template = Handlebars.compile(templateEntity.content);
+          this.templateCache.set(templateName, template);
         }
-
-        // Make sure partials are registered before compiling
-        await this.registerPartials();
-
-        // Parse with Handlebars and cache
-        const template = Handlebars.compile(templateEntity.content);
-        this.templateCache.set(templateName, template);
       }
 
       // Get template from cache
@@ -569,6 +643,72 @@ export class EmailService implements IEmailService {
       throw new Error(`Failed to compile email template: ${error.message}`);
     }
   }
+
+  // private async compileTemplate(
+  //   templateName: string,
+  //   context: Record<string, any>,
+  // ): Promise<string> {
+  //   try {
+  //     // Check template cache first
+  //     if (!this.templateCache.has(templateName)) {
+  //       // Get template from database
+  //       const templateEntity = await this.emailTemplateRepository.findOne({
+  //         where: { name: templateName, isActive: true },
+  //       });
+
+  //       if (!templateEntity) {
+  //         throw new Error(
+  //           `Email template "${templateName}" not found or inactive`,
+  //         );
+  //       }
+
+  //       // Make sure partials are registered before compiling
+  //       await this.registerPartials();
+
+  //       // Parse with Handlebars and cache
+  //       const template = Handlebars.compile(templateEntity.content);
+  //       this.templateCache.set(templateName, template);
+  //     }
+
+  //     // Get template from cache
+  //     const template = this.templateCache.get(templateName);
+
+  //     // Add common context variables
+  //     const fullContext = {
+  //       ...context,
+  //       appName: this.configService.get<string>('APP_NAME', 'SecureMail'),
+  //       currentYear: new Date().getFullYear(),
+  //       appUrl: this.appUrl,
+  //     };
+
+  //     // Compile and return HTML
+  //     return template(fullContext);
+  //   } catch (error) {
+  //     // If the error is about missing partials, try to fix it
+  //     if (
+  //       error.message &&
+  //       error.message.includes('partial') &&
+  //       error.message.includes('not found')
+  //     ) {
+  //       this.logger.warn(
+  //         `Missing partial detected: ${error.message}. Attempting recovery...`,
+  //       );
+
+  //       // Force reregister of partials and clear template cache
+  //       await this.registerPartials();
+  //       this.templateCache.delete(templateName);
+
+  //       // Try again one more time
+  //       return this.compileTemplate(templateName, context);
+  //     }
+
+  //     this.logger.error(
+  //       `Template compilation error: ${error.message}`,
+  //       error.stack,
+  //     );
+  //     throw new Error(`Failed to compile email template: ${error.message}`);
+  //   }
+  // }
 
   /**
    * Process and send an email directly (called from queue processor)
@@ -689,6 +829,43 @@ export class EmailService implements IEmailService {
       // Rethrow error for the queue to handle retries
       throw error;
     }
+  }
+
+  /**
+   * Send 2FA backup codes email
+   * @param email User's email address
+   * @param name User's name
+   * @param backupCodes Array of backup codes
+   */
+  async sendTwoFactorBackupCodesEmail(
+    email: string,
+    name: string,
+    backupCodes: string[],
+  ): Promise<string> {
+    const emailId = uuidv4();
+
+    await this.queueEmail(
+      email,
+      'Your Two-Factor Authentication Backup Codes',
+      '2fa-backup-codes',
+      {
+        name,
+        backupCodes,
+        securitySettingsUrl: `${this.appUrl}/settings/security`,
+        appName: this.configService.get<string>('APP_NAME', 'SecureMail'),
+        supportEmail: this.configService.get<string>(
+          'SUPPORT_EMAIL',
+          'support@securemail.com',
+        ),
+      },
+      {
+        tags: ['2fa', 'security'],
+        priority: 'high',
+        trackOpens: true,
+      },
+    );
+
+    return emailId;
   }
 
   private checkSpamContent(

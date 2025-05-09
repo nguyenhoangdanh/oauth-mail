@@ -31,6 +31,26 @@ export class WebhookService implements OnModuleInit {
     'user.logout',
   ];
 
+  private readonly authEvents = [
+    'user.created',
+    'user.updated',
+    'user.deleted',
+    'user.login',
+    'user.logout',
+    'user.password_changed',
+    'user.email_verified',
+    'user.two_factor_enabled',
+    'user.two_factor_disabled',
+    'session.created',
+    'session.revoked',
+    'organization.created',
+    'organization.updated',
+    'organization.deleted',
+    'organization.member_added',
+    'organization.member_removed',
+    'organization.member_role_changed',
+  ];
+
   constructor(
     @InjectRepository(WebhookSubscription)
     private webhookRepository: Repository<WebhookSubscription>,

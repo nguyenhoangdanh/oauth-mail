@@ -11,6 +11,7 @@ import { Repository } from 'typeorm';
 import { Session } from 'src/users/entities/session.entity';
 import { Request } from 'express';
 import { ConfigService } from '@nestjs/config';
+import { AuditService } from 'src/audit/audit.service';
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
@@ -19,6 +20,7 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     private configService: ConfigService,
     @InjectRepository(Session)
     private sessionRepository: Repository<Session>,
+    private auditService: AuditService,
   ) {
     super();
   }
@@ -117,17 +119,17 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
   //   return true;
   // }
 
-  // handleRequest(err, user) {
-  //   // Nếu có lỗi hoặc không có user
-  //   if (err || !user) {
-  //     // Log chi tiết hơn
-  //     console.error(
-  //       'Authentication failed:',
-  //       err || 'No user returned from strategy',
-  //     );
-  //     throw err || new UnauthorizedException('Authentication failed');
-  //   }
+  handleRequest(err, user) {
+    // Nếu có lỗi hoặc không có user
+    if (err || !user) {
+      // Log chi tiết hơn
+      console.error(
+        'Authentication failed:',
+        err || 'No user returned from strategy',
+      );
+      throw err || new UnauthorizedException('Authentication failed');
+    }
 
-  //   return user;
-  // }
+    return user;
+  }
 }

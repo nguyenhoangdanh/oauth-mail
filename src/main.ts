@@ -53,9 +53,19 @@ async function bootstrap() {
     app.enableCors({
       // origin: corsOrigins === '*' ? '*' : corsOrigins.split(','),
       origin: ['http://localhost:3000'], // Explicitly allow your Next.js app
-      methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+      // methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
       credentials: true,
-      allowedHeaders: 'Content-Type,Accept,Authorization',
+      // allowedHeaders: 'Content-Type,Accept,Authorization',
+      allowedHeaders: [
+        'Content-Type',
+        'Authorization',
+        'Cache-Control',
+        'Pragma',
+        'X-Requested-With',
+        'Accept',
+      ],
+      exposedHeaders: ['Set-Cookie'], // This is important for cookie handling
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'HEAD'],
       maxAge: 3600,
     });
 
@@ -101,7 +111,7 @@ async function bootstrap() {
 
     // Start server
     const port = configService.get<number>('PORT', 8001);
-    await app.listen(port, '0.0.0.0');
+    await app.listen(port, 'localhost');
 
     // Log startup information
     const appUrl = await app.getUrl();

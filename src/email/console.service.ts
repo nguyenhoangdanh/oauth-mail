@@ -250,4 +250,31 @@ export class ConsoleEmailService implements IEmailService {
       ...extraData,
     });
   }
+
+  async sendMagicLinkEmail(
+    email: string,
+    name: string,
+    token: string,
+  ): Promise<void> {
+    this.logger.log(`
+      [Email] Magic Link Email
+      To: ${email}
+      Name: ${name || 'User'}
+      Token: ${token}
+    `);
+  }
+
+  async sendVerificationCode(
+    email: string,
+    name: string,
+    code: string,
+  ): Promise<string> {
+    this.logger.log(`
+      [VerificationCode Sent]
+      To: ${email}
+      Name: ${name || 'User'}
+      Code: ${code}
+    `);
+    return 'VerificationCode sent successfully!';
+  }
 }

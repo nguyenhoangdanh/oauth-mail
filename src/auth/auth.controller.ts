@@ -11,6 +11,7 @@ import {
   HttpCode,
   HttpStatus,
   UnauthorizedException,
+  Delete,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Response } from 'express';
@@ -29,6 +30,11 @@ import { LoginDto } from './dto/login.dto';
 import { MagicLinkDto } from './dto/magic-link.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { MagicLinkService } from './magic-link.service';
+import {
+  ResendVerificationCodeDto,
+  VerifyRegistrationDto,
+} from './dto/pending-registration.entity';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -36,6 +42,7 @@ export class AuthController {
   constructor(
     private authService: AuthService,
     private configService: ConfigService,
+    private magicLinkService: MagicLinkService,
   ) {}
 
   @ApiOperation({ summary: 'Register a new user' })
@@ -46,6 +53,61 @@ export class AuthController {
   @Post('register')
   async register(@Body() registerDto: RegisterDto, @Req() req) {
     return this.authService.register(registerDto, req);
+  }
+
+  // In your auth.controller.ts or a separate debug controller
+  @Get('debug-cors')
+  async debugCors(@Req() req, @Res({ passthrough: true }) res: Response) {
+    console.log('Debug CORS endpoint called');
+    console.log('Headers:', req.headers);
+    return { success: true, message: 'CORS is working' };
+  }
+
+  @Get('debug-cookies')
+  async debugCookies(@Req() req, @Res({ passthrough: true }) res: Response) {
+    console.log('Debug cookies endpoint called');
+    console.log('Cookies from request:', req.cookies);
+
+    // Thiết lập một cookie test
+    res.cookie('test-cookie', 'works', {
+      httpOnly: true,
+      secure: false,
+      sameSite: 'lax',
+      maxAge: 60000,
+      path: '/',
+    });
+
+    return {
+      success: true,
+      message: 'Test cookie set',
+      cookies: req.cookies,
+    };
+  }
+
+  @ApiOperation({ summary: 'Verify registration with code' })
+  @ApiResponse({
+    status: 200,
+    description: 'User registered and logged in successfully',
+  })
+  @Post('verify-registration')
+  async verifyRegistration(
+    @Body() verifyDto: VerifyRegistrationDto,
+    @Req() req,
+  ) {
+    return this.authService.verifyRegistration(verifyDto, req);
+  }
+
+  @ApiOperation({ summary: 'Resend verification code' })
+  @ApiResponse({
+    status: 200,
+    description: 'New verification code sent',
+  })
+  @Post('resend-verification-code')
+  async resendVerificationCode(
+    @Body() resendDto: ResendVerificationCodeDto,
+    @Req() req,
+  ) {
+    return this.authService.resendVerificationCode(resendDto.email, req);
   }
 
   @ApiOperation({ summary: 'Log in with email and password' })
@@ -68,18 +130,20 @@ export class AuthController {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      // secure: true,
+      // sameSite: 'none',
       maxAge: expiresAt * 1000,
       path: '/', // Set path to root
-      domain: 'localhost', // Explicitly set domain (optional, might help)
     });
 
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      // secure: true,
+      // sameSite: 'none',
       maxAge: refreshExpiresAt * 1000,
       path: '/', // Set path to root instead of '/auth/refresh-token'
-      domain: 'localhost', // Explicitly set domain (optional, might help)
     });
 
     return {
@@ -123,7 +187,7 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const { accessToken, expiresAt, user } =
-      await this.authService.refreshToken(refreshTokenDto.refreshToken, req);
+      await this.authService.refreshToken(refreshTokenDto.refreshToken);
 
     // Set HTTP-only cookie with the new token
     res.cookie('accessToken', accessToken, {
@@ -151,15 +215,21 @@ export class AuthController {
     @Req() req,
     @Res({ passthrough: true }) res: Response,
   ) {
+    const refreshToken =
+      req.cookies?.refreshToken ||
+      req.body?.refreshToken ||
+      req.headers['x-refresh-token'];
+
+    console.log('Refresh token present:', !!refreshToken);
     // Get refresh token from cookie
-    const refreshToken = req.cookies.refreshToken;
+    // const refreshToken = req.cookies.refreshToken;
 
     if (!refreshToken) {
       throw new UnauthorizedException('No refresh token provided');
     }
 
     const { accessToken, expiresAt, user } =
-      await this.authService.refreshToken(refreshToken, req);
+      await this.authService.refreshToken(refreshToken);
 
     // Set HTTP-only cookie with the new token
     res.cookie('accessToken', accessToken, {
@@ -177,21 +247,21 @@ export class AuthController {
     };
   }
 
-  @ApiOperation({ summary: 'Send a magic link for passwordless login' })
-  @ApiResponse({
-    status: 200,
-    description: 'Magic link sent successfully',
-  })
-  @HttpCode(HttpStatus.OK)
-  @Post('magic-link')
-  async sendMagicLink(@Body() magicLinkDto: MagicLinkDto) {
-    await this.authService.sendMagicLink(magicLinkDto);
-    return {
-      success: true,
-      message:
-        'If your email is registered, you will receive a magic link shortly',
-    };
-  }
+  // @ApiOperation({ summary: 'Send a magic link for passwordless login' })
+  // @ApiResponse({
+  //   status: 200,
+  //   description: 'Magic link sent successfully',
+  // })
+  // @HttpCode(HttpStatus.OK)
+  // @Post('magic-link')
+  // async sendMagicLink(@Body() magicLinkDto: MagicLinkDto) {
+  //   await this.authService.sendMagicLink(magicLinkDto);
+  //   return {
+  //     success: true,
+  //     message:
+  //       'If your email is registered, you will receive a magic link shortly',
+  //   };
+  // }
 
   @ApiOperation({ summary: 'Get the current logged-in user' })
   @ApiResponse({
@@ -203,6 +273,14 @@ export class AuthController {
   @Get('me')
   async getProfile(@GetUser() user: User) {
     return user;
+  }
+
+  @ApiOperation({ summary: 'Get active sessions for current user' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get('sessions')
+  async getSessions(@GetUser() user: User) {
+    return this.authService.getSessions(user.id);
   }
 
   @ApiOperation({ summary: 'Google OAuth login' })
@@ -283,30 +361,30 @@ export class AuthController {
     return { success: true, message: 'Logged out successfully' };
   }
 
-  @ApiOperation({ summary: 'Verify a magic link' })
-  @ApiResponse({
-    status: 200,
-    description: 'Magic link verified successfully',
-  })
-  @Get('verify-magic-link/:token')
-  async verifyMagicLink(
-    @Param('token') token: string,
-    @Req() req,
-    @Res() res: Response,
-  ) {
-    try {
-      const result = await this.authService.verifyMagicLink(token, req);
-      // Redirect to frontend with token
-      return res.redirect(
-        `${this.configService.get('FRONTEND_URL')}/auth/callback?token=${result.accessToken}`,
-      );
-    } catch (error) {
-      // Redirect to error page
-      return res.redirect(
-        `${this.configService.get('FRONTEND_URL')}/auth/error?message=${error.message}`,
-      );
-    }
-  }
+  // @ApiOperation({ summary: 'Verify a magic link' })
+  // @ApiResponse({
+  //   status: 200,
+  //   description: 'Magic link verified successfully',
+  // })
+  // @Get('verify-magic-link/:token')
+  // async verifyMagicLink(
+  //   @Param('token') token: string,
+  //   @Req() req,
+  //   @Res() res: Response,
+  // ) {
+  //   try {
+  //     const result = await this.authService.verifyMagicLink(token, req);
+  //     // Redirect to frontend with token
+  //     return res.redirect(
+  //       `${this.configService.get('FRONTEND_URL')}/auth/callback?token=${result.accessToken}`,
+  //     );
+  //   } catch (error) {
+  //     // Redirect to error page
+  //     return res.redirect(
+  //       `${this.configService.get('FRONTEND_URL')}/auth/error?message=${error.message}`,
+  //     );
+  //   }
+  // }
 
   @ApiOperation({ summary: 'Verify email address' })
   @ApiResponse({
@@ -327,5 +405,98 @@ export class AuthController {
         `${this.configService.get('FRONTEND_URL')}/auth/error?message=${error.message}`,
       );
     }
+  }
+
+  @ApiOperation({ summary: 'Request magic link for passwordless login' })
+  @ApiResponse({
+    status: 200,
+    description: 'Magic link sent successfully',
+  })
+  @HttpCode(HttpStatus.OK)
+  @Post('magic-link')
+  async sendMagicLink(@Body() magicLinkDto: MagicLinkDto, @Req() req) {
+    await this.magicLinkService.sendMagicLink(
+      magicLinkDto.email,
+      req.ip,
+      req.headers['user-agent'],
+    );
+    return {
+      success: true,
+      message:
+        'If your email is registered, you will receive a magic link shortly',
+    };
+  }
+
+  // Update verifyMagicLink to use the MagicLinkService
+  @ApiOperation({ summary: 'Verify a magic link' })
+  @ApiResponse({
+    status: 200,
+    description: 'Magic link verified successfully',
+  })
+  @Get('verify-magic-link/:token')
+  async verifyMagicLink(
+    @Param('token') token: string,
+    @Req() req,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    try {
+      const result = await this.magicLinkService.verifyMagicLink(
+        token,
+        req.ip,
+        req.headers['user-agent'],
+      );
+
+      const accessToken = result.accessToken;
+      const refreshToken = result.refreshToken;
+
+      // Set HTTP-only cookie with the access token
+      res.cookie('accessToken', accessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+        maxAge: result.expiresAt * 1000,
+        path: '/', // Set path to root
+        domain: 'localhost', // Explicitly set domain (optional, might help)
+      });
+
+      res.cookie('refreshToken', refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+        maxAge: result.refreshTokenExpiresAt * 1000,
+        path: '/', // Set path to root instead of '/auth/refresh-token'
+        domain: 'localhost', // Explicitly set domain (optional, might help)
+      });
+
+      // Trả về kết quả JSON thay vì redirect
+      return {
+        success: true,
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        expiresAt: result.expiresAt,
+        user: result.user,
+      };
+    } catch (error) {
+      // Trả về lỗi JSON thay vì redirect
+      throw new UnauthorizedException(
+        error.message || 'Invalid or expired magic link',
+      );
+    }
+  }
+
+  @ApiOperation({ summary: 'Revoke all sessions except current one' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Post('revoke-all-sessions')
+  async revokeAllSessions(@Req() req, @GetUser() user: User) {
+    return this.authService.revokeAllSessions(user.id, req.user.sessionId);
+  }
+
+  @ApiOperation({ summary: 'Revoke a specific session' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Delete('sessions/:id')
+  async revokeSession(@Param('id') id: string, @GetUser() user: User) {
+    return this.authService.revokeSession(id, user.id);
   }
 }

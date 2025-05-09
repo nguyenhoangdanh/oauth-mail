@@ -31,6 +31,12 @@ export interface IEmailService {
     token: string,
   ): Promise<string>;
 
+  sendVerificationCode(
+    email: string,
+    name: string | null,
+    code: string,
+  ): Promise<string>;
+
   /**
    * Sends a password reset email
    * @param email User's email address
@@ -61,6 +67,26 @@ export interface IEmailService {
   //   name: string,
   //   loginInfo: LoginInfo,
   // ): Promise<void>;
+
+  /**
+   * Send 2FA backup codes email
+   * @param email User's email address
+   * @param name User's name
+   * @param backupCodes Array of backup codes
+   */
+  sendTwoFactorBackupCodesEmail(
+    email: string,
+    name: string,
+    backupCodes: string[],
+  ): Promise<string>;
+
+  /**
+   * Send magic link email
+   * @param email User's email address
+   * @param name User's name
+   * @param token Magic link token
+   */
+  sendMagicLinkEmail(email: string, name: string, token: string): Promise<void>;
 }
 
 /**

@@ -1,22 +1,46 @@
-
 <!DOCTYPE html>
 <html>
+
 <head>
   <meta charset="UTF-8">
-  <title>{{appName}} Notification</title>
+  <title>Your Two-Factor Authentication Backup Codes</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
+
 <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0;">
   {{> header}}
+
   <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-    <h2>Notification from {{appName}}</h2>
+    <h2>Your Two-Factor Authentication Backup Codes</h2>
+
     <p>Hello {{name}},</p>
-    <p>This is a notification from {{appName}}.</p>
+
+    <p>You've successfully set up two-factor authentication for your {{appName}} account. Please save these backup codes
+      in a secure location. You can use these codes to access your account if you lose access to your authenticator app.
+    </p>
+
+    <div style="background-color: #f5f5f5; padding: 15px; margin: 20px 0; font-family: monospace; border-radius: 5px;">
+      {{#each backupCodes}}
+      <div style="padding: 8px 0; border-bottom: 1px solid #ddd;">{{this}}</div>
+      {{/each}}
+    </div>
+
+    <p><strong>Important:</strong> Each code can only be used once. Keep these codes confidential and store them
+      securely.</p>
+
+    <p>If you need to generate new backup codes, you can do so in your <a href="{{securitySettingsUrl}}"
+        style="color: #0066cc;">security settings</a>.</p>
+
+    <p>If you did not enable two-factor authentication on your account, please contact us immediately at <a
+        href="mailto:{{supportEmail}}" style="color: #0066cc;">{{supportEmail}}</a>.</p>
+
     <p>Thanks,<br>The {{appName}} Team</p>
   </div>
-  {{> footer recipient=to}}
-  
+
+  {{> footer}}
+
   <!-- Tracking pixel for email opens -->
-  <img src="{{appUrl}}/api/email-tracker/{{id}}/open" alt="" width="1" height="1" style="display:none;">
+  <img src="{{appUrl}}/api/email-tracker/{{emailId}}/open" alt="" width="1" height="1" style="display:none;">
 </body>
+
 </html>

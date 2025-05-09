@@ -24,6 +24,7 @@ export class GitHubStrategy extends PassportStrategy(Strategy, 'github') {
     refreshToken: string,
     profile: any,
     done: any,
+    req?: any,
   ): Promise<any> {
     const { id, emails, displayName, photos } = profile;
 
@@ -34,16 +35,19 @@ export class GitHubStrategy extends PassportStrategy(Strategy, 'github') {
       email = primaryEmail ? primaryEmail.value : emails[0].value;
     }
 
-    const user = await this.authService.findOrCreateOAuthUser({
-      provider: 'github',
-      providerId: id,
-      email: email || `${id}@github.com`,
-      fullName: displayName || '',
-      avatarUrl: photos && photos.length > 0 ? photos[0].value : null,
-      accessToken,
-      refreshToken,
-      profile,
-    });
+    const user = await this.authService.findOrCreateOAuthUser(
+      {
+        provider: 'github',
+        providerId: id,
+        email: email || `${id}@github.com`,
+        fullName: displayName || '',
+        avatarUrl: photos && photos.length > 0 ? photos[0].value : null,
+        accessToken,
+        refreshToken,
+        profile,
+      },
+      req || ({} as Request), // Pass request object to the service
+    );
 
     done(null, user);
   }

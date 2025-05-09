@@ -43,6 +43,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     refreshToken: string,
     profile: any,
     done: VerifyCallback,
+    req?: any,
   ): Promise<any> {
     // If strategy is not enabled, return error
     if (!this.isEnabled) {
@@ -51,18 +52,21 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
 
     try {
       const { id, emails, name, photos } = profile;
-      const user = await this.authService.findOrCreateOAuthUser({
-        provider: 'google',
-        providerId: id,
-        email: emails?.[0]?.value || `${id}@google.com`,
-        fullName: name
-          ? `${name.givenName || ''} ${name.familyName || ''}`.trim()
-          : '',
-        avatarUrl: photos?.[0]?.value || null,
-        accessToken,
-        refreshToken,
-        profile,
-      });
+      const user = await this.authService.findOrCreateOAuthUser(
+        {
+          provider: 'google',
+          providerId: id,
+          email: emails?.[0]?.value || `${id}@google.com`,
+          fullName: name
+            ? `${name.givenName || ''} ${name.familyName || ''}`.trim()
+            : '',
+          avatarUrl: photos?.[0]?.value || null,
+          accessToken,
+          refreshToken,
+          profile,
+        },
+        req || ({} as Request), // Pass request object to the service
+      );
       done(null, user);
     } catch (error) {
       this.logger.error(

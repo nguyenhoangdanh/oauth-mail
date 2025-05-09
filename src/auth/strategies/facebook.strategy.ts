@@ -25,21 +25,25 @@ export class FacebookStrategy extends PassportStrategy(Strategy, 'facebook') {
     refreshToken: string,
     profile: Profile,
     done: any,
+    req?: any,
   ): Promise<any> {
     const { id, name, emails, photos } = profile;
 
-    const user = await this.authService.findOrCreateOAuthUser({
-      provider: 'facebook',
-      providerId: id,
-      email: emails && emails[0] ? emails[0].value : `${id}@facebook.com`,
-      fullName: name
-        ? `${name.givenName || ''} ${name.familyName || ''}`.trim()
-        : '',
-      avatarUrl: photos && photos[0] ? photos[0].value : null,
-      accessToken,
-      refreshToken,
-      profile,
-    });
+    const user = await this.authService.findOrCreateOAuthUser(
+      {
+        provider: 'facebook',
+        providerId: id,
+        email: emails && emails[0] ? emails[0].value : `${id}@facebook.com`,
+        fullName: name
+          ? `${name.givenName || ''} ${name.familyName || ''}`.trim()
+          : '',
+        avatarUrl: photos && photos[0] ? photos[0].value : null,
+        accessToken,
+        refreshToken,
+        profile,
+      },
+      req || ({} as Request), // Pass request object to the service
+    );
 
     done(null, user);
   }
