@@ -1,25 +1,32 @@
 // src/auth/decorators/get-user.decorator.ts
-import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+// Kiểm tra và sửa decorator GetUser để đảm bảo nó trả về user đúng cách
 
-/**
- * Custom decorator to extract the user object from the request
- * Can be used as @GetUser() user: User or @GetUser('email') email: string
- */
+import { createParamDecorator, ExecutionContext, Logger } from '@nestjs/common';
+
 export const GetUser = createParamDecorator(
-  (data: string | undefined, ctx: ExecutionContext) => {
+  (data: unknown, ctx: ExecutionContext) => {
+    const logger = new Logger('GetUserDecorator');
     const request = ctx.switchToHttp().getRequest();
-    const user = request.user;
 
-    if (!user) {
+    // Thêm logging để debug
+    logger.debug(`Request user: ${JSON.stringify(request.user)}`);
+
+    if (!request.user) {
+      logger.error('User object not found in request');
       return null;
     }
 
-    // If data is provided, return specific property
-    if (data) {
-      return user[data];
+    // Nếu request.user đến từ JWT token, nó có thể có dạng khác với User entity
+    // Kiểm tra và xây dựng đối tượng User phù hợp
+    if (request.user.sub && !request.user.id) {
+      logger.debug('Converting JWT payload to User object');
+      return {
+        id: request.user.sub,
+        email: request.user.email,
+        roles: request.user.roles || [],
+      };
     }
 
-    // Otherwise, return the entire user object
-    return user;
+    return request.user;
   },
 );

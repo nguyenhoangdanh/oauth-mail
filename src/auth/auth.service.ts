@@ -30,6 +30,7 @@ import { AuditService } from 'src/audit/audit.service';
 import { Request } from 'express';
 import { PendingRegistration } from './dto/verify-registration.dto';
 import { VerifyRegistrationDto } from './dto/pending-registration.entity';
+import { TwoFactorService } from 'src/two-factor/two-factor.service';
 
 @Injectable()
 export class AuthService {
@@ -51,38 +52,27 @@ export class AuthService {
     private usersService: UsersService,
     private readonly eventEmitter: EventEmitter2,
     private readonly auditService: AuditService,
+    private readonly twoFactorService: TwoFactorService,
     @Inject(EMAIL_SERVICE)
     private emailService: IEmailService,
   ) {}
 
   // Validate user credentials
   async validateUser(email: string, password: string): Promise<any> {
-    console.log('AuthService.validateUser called for:', email);
-
     try {
       const user = await this.usersRepository.findOne({
         where: { email, isActive: true },
       });
 
-      console.log(
-        'User found:',
-        user ? `${user.id} (isActive: ${user.isActive})` : 'No user found',
-      );
-
       if (!user) {
-        console.log('No active user found with email:', email);
         return null;
       }
 
       if (!user.password) {
-        console.log(
-          'User has no password, might be OAuth/Magic Link only account',
-        );
         return null;
       }
 
       const isPasswordValid = await user.comparePassword(password);
-      console.log('Password validation result:', isPasswordValid);
 
       if (isPasswordValid) {
         const { password, ...result } = user;
@@ -287,12 +277,124 @@ export class AuthService {
     };
   }
 
-  // Login with email and password
+  /**
+   * Create a pending 2FA session
+   */
+  async createTwoFactorSession(user: User, req: ParsedRequest): Promise<any> {
+    // Tạo MỘT sessionToken duy nhất
+    const sessionToken = uuidv4();
+    console.log(`Generated sessionToken: ${sessionToken} for user ${user.id}`);
+
+    // Tính thời gian hết hạn
+    const expiresAt = new Date();
+    expiresAt.setMinutes(expiresAt.getMinutes() + 10); // 10 phút để nhập mã
+
+    // Tạo token record với sessionToken đã tạo
+    const tokenRecord = this.tokenRepository.create({
+      userId: user.id,
+      token: sessionToken, // <-- SỬA: Sử dụng chính xác sessionToken đã tạo
+      type: 'two_factor_pending',
+      expiresAt,
+    });
+
+    const savedToken = await this.tokenRepository.save(tokenRecord);
+    console.log(
+      `Saved token record with ID: ${savedToken.id}, token value: ${savedToken.token}`,
+    );
+
+    // Kiểm tra xác nhận
+    if (savedToken.token !== sessionToken) {
+      console.error(
+        'Critical: Saved token value does not match generated sessionToken!',
+      );
+      console.error(`Generated: ${sessionToken}, Saved: ${savedToken.token}`);
+    }
+
+    // Trả về sessionToken đã lưu
+    return {
+      success: true,
+      message: 'Two-factor authentication required',
+      requires2FA: true,
+      sessionId: sessionToken, // Sử dụng sessionToken đã lưu trong DB
+      userId: user.id,
+      expiresAt: Math.floor(expiresAt.getTime() / 1000),
+    };
+  }
+
+  /**
+   * Verify 2FA and complete login
+   */
+  async completeTwoFactorLogin(
+    sessionId: string,
+    token: string,
+    req: ParsedRequest,
+  ): Promise<any> {
+    console.log(`Attempting to complete 2FA login for session: ${sessionId}`);
+
+    // Find the pending 2FA session
+    const pendingSession = await this.tokenRepository.findOne({
+      where: { token: sessionId, type: 'two_factor_pending', used: false },
+      relations: ['user'],
+    });
+
+    console.log('Pending session found', pendingSession);
+
+    if (!pendingSession) {
+      console.log(`No pending session found with ID: ${sessionId}`);
+      throw new UnauthorizedException('Invalid or expired session');
+    }
+
+    if (pendingSession.expiresAt < new Date()) {
+      console.log(
+        `Session expired at: ${pendingSession.expiresAt.toISOString()}`,
+      );
+      throw new UnauthorizedException('Session has expired');
+    }
+
+    const user = pendingSession.user;
+    console.log(`Found user: ${user.id} for 2FA verification`);
+
+    // Verify the OTP with the TwoFactorService
+    const isValid = await this.twoFactorService.verify(user.id, token);
+    if (!isValid) {
+      // Log failed verification
+      await this.auditService.log({
+        action: 'two_factor_verification_failed',
+        userId: user.id,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'] as string,
+      });
+
+      throw new UnauthorizedException('Invalid verification code');
+    }
+
+    // Mark the pending session as used
+    pendingSession.used = true;
+    await this.tokenRepository.save(pendingSession);
+    console.log('Pending session marked as used');
+
+    // Create a real session
+    const result = await this.createSession(user, req);
+    console.log('New session created successfully');
+
+    // Log successful login
+    await this.auditService.log({
+      action: 'login_2fa_success',
+      userId: user.id,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'] as string,
+    });
+
+    return result;
+  }
+
+  // Cập nhật phương thức login để hỗ trợ 2FA
   async login(loginDto: LoginDto, req: ParsedRequest): Promise<any> {
     const user = await this.validateUser(loginDto.email, loginDto.password);
     this.logger.log(
       `Login from device: ${JSON.stringify(loginDto.securityInfo)}`,
     );
+
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');
     }
@@ -300,7 +402,17 @@ export class AuthService {
     // Update last login
     await this.usersRepository.update(user.id, { lastLoginAt: new Date() });
 
-    // Create session and JWT
+    // Check if 2FA is enabled
+    const isTwoFactorEnabled = await this.twoFactorService.isTwoFactorEnabled(
+      user.id,
+    );
+
+    if (isTwoFactorEnabled) {
+      // Create pending 2FA session instead of a full session
+      return this.createTwoFactorSession(user, req);
+    }
+
+    // Create session and JWT (no 2FA required)
     const sessionData = await this.createSession(user, req);
 
     // Emit webhook event
@@ -314,6 +426,34 @@ export class AuthService {
 
     return sessionData;
   }
+
+  // Login with email and password
+  // async login(loginDto: LoginDto, req: ParsedRequest): Promise<any> {
+  //   const user = await this.validateUser(loginDto.email, loginDto.password);
+  //   this.logger.log(
+  //     `Login from device: ${JSON.stringify(loginDto.securityInfo)}`,
+  //   );
+  //   if (!user) {
+  //     throw new UnauthorizedException('Invalid credentials');
+  //   }
+
+  //   // Update last login
+  //   await this.usersRepository.update(user.id, { lastLoginAt: new Date() });
+
+  //   // Create session and JWT
+  //   const sessionData = await this.createSession(user, req);
+
+  //   // Emit webhook event
+  //   this.eventEmitter.emit('user.login', {
+  //     userId: user.id,
+  //     email: user.email,
+  //     timestamp: new Date(),
+  //     ipAddress: req.ip,
+  //     userAgent: req.headers['user-agent'],
+  //   });
+
+  //   return sessionData;
+  // }
 
   async sendMagicLink(email: string, req: Request): Promise<void> {
     // Find user or create a pending user

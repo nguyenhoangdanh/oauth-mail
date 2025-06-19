@@ -40,6 +40,7 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { ForgetPasswordDto } from './dto/forget-password.dto';
 import { UsersService } from 'src/users/user.service';
 import { Public } from './decorators/public.decorator';
+import { TwoFactorService } from 'src/two-factor/two-factor.service';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -49,6 +50,7 @@ export class AuthController {
     private configService: ConfigService,
     private magicLinkService: MagicLinkService,
     private readonly usersService: UsersService,
+    private readonly twoFactorService: TwoFactorService,
   ) {}
 
   @ApiOperation({ summary: 'Register a new user' })
@@ -116,6 +118,51 @@ export class AuthController {
     return this.authService.resendVerificationCode(resendDto.email, req);
   }
 
+  // -------------------------Two factor auth-------------------------
+  @ApiOperation({ summary: 'Verify 2FA login' })
+  @ApiResponse({
+    status: 200,
+    description: 'Successfully verified 2FA and logged in',
+  })
+  @Post('2fa/verify')
+  async verifyTwoFactorLogin(
+    @Body() verifyDto: { token: string; sessionId: string },
+    @Req() req,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.completeTwoFactorLogin(
+      verifyDto.sessionId,
+      verifyDto.token,
+      req,
+    );
+
+    // Set HTTP-only cookie with the access token
+    res.cookie('accessToken', result.accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      maxAge: result.expiresAt * 1000,
+      path: '/',
+    });
+
+    res.cookie('refreshToken', result.refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      maxAge: result.refreshExpiresAt * 1000,
+      path: '/',
+    });
+
+    return {
+      success: true,
+      user: result.user,
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+      expiresAt: result.expiresAt,
+    };
+  }
+  // -------------------------Two factor auth-------------------------
+
   @ApiOperation({ summary: 'Log in with email and password' })
   @ApiResponse({
     status: 200,
@@ -128,16 +175,30 @@ export class AuthController {
     @Req() req,
     @Res({ passthrough: true }) res: Response,
   ) {
+    const result = await this.authService.login(loginDto, req);
+
+    // Kiểm tra xem có yêu cầu xác thực 2FA không
+    if (result.requires2FA) {
+      // Trả về response yêu cầu 2FA, không đặt cookie
+      return {
+        success: true,
+        requires2FA: true,
+        sessionId: result.sessionId,
+        userId: result.userId,
+        expiresAt: result.expiresAt,
+        message: 'Two-factor authentication required',
+      };
+    }
+
+    // Trường hợp không yêu cầu 2FA, thực hiện như trước
     const { accessToken, refreshToken, expiresAt, refreshExpiresAt, user } =
-      await this.authService.login(loginDto, req);
+      result;
 
     // Set HTTP-only cookie with the access token
     res.cookie('accessToken', accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-      // secure: true,
-      // sameSite: 'none',
       maxAge: expiresAt * 1000,
       path: '/', // Set path to root
     });
@@ -146,8 +207,6 @@ export class AuthController {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-      // secure: true,
-      // sameSite: 'none',
       maxAge: refreshExpiresAt * 1000,
       path: '/', // Set path to root instead of '/auth/refresh-token'
     });
@@ -159,6 +218,38 @@ export class AuthController {
       refreshToken, // Include this in the response only once during login
       expiresAt,
     };
+
+    // const { accessToken, refreshToken, expiresAt, refreshExpiresAt, user } =
+    //   await this.authService.login(loginDto, req);
+
+    // // Set HTTP-only cookie with the access token
+    // res.cookie('accessToken', accessToken, {
+    //   httpOnly: true,
+    //   secure: process.env.NODE_ENV === 'production',
+    //   sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    //   // secure: true,
+    //   // sameSite: 'none',
+    //   maxAge: expiresAt * 1000,
+    //   path: '/', // Set path to root
+    // });
+
+    // res.cookie('refreshToken', refreshToken, {
+    //   httpOnly: true,
+    //   secure: process.env.NODE_ENV === 'production',
+    //   sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    //   // secure: true,
+    //   // sameSite: 'none',
+    //   maxAge: refreshExpiresAt * 1000,
+    //   path: '/', // Set path to root instead of '/auth/refresh-token'
+    // });
+
+    // return {
+    //   success: true,
+    //   user,
+    //   accessToken,
+    //   refreshToken, // Include this in the response only once during login
+    //   expiresAt,
+    // };
   }
 
   @Get('verify-auth')
@@ -234,23 +325,30 @@ export class AuthController {
       throw new UnauthorizedException('No refresh token provided');
     }
 
-    const { accessToken, expiresAt, user } =
-      await this.authService.refreshToken(refreshToken);
+    try {
+      // Thêm kiểm tra hợp lệ của refreshToken
+      const { accessToken, expiresAt, user } =
+        await this.authService.refreshToken(refreshToken);
 
-    // Set HTTP-only cookie with the new token
-    res.cookie('accessToken', accessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-      maxAge: expiresAt * 1000, // Convert seconds to milliseconds
-    });
+      // Set HTTP-only cookie with the new token
+      res.cookie('accessToken', accessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+        maxAge: expiresAt * 1000, // Convert seconds to milliseconds
+        path: '/',
+      });
 
-    return {
-      success: true,
-      user,
-      accessToken,
-      expiresAt,
-    };
+      return {
+        success: true,
+        user,
+        accessToken,
+        expiresAt,
+      };
+    } catch (error) {
+      console.error('Error refreshing token:', error);
+      throw error;
+    }
   }
 
   // @ApiOperation({ summary: 'Send a magic link for passwordless login' })

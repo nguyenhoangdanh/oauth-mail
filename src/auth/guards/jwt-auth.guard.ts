@@ -3,6 +3,7 @@ import {
   Injectable,
   ExecutionContext,
   UnauthorizedException,
+  Logger,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { JwtService } from '@nestjs/jwt';
@@ -14,11 +15,15 @@ import { ConfigService } from '@nestjs/config';
 import { AuditService } from 'src/audit/audit.service';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { Reflector } from '@nestjs/core';
+import { ModuleRef } from '@nestjs/core';
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
+  private readonly logger = new Logger(JwtAuthGuard.name);
+  private jwtService: JwtService;
+
   constructor(
-    private jwtService: JwtService,
+    private moduleRef: ModuleRef,
     private configService: ConfigService,
     @InjectRepository(Session)
     private sessionRepository: Repository<Session>,
@@ -26,6 +31,10 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     private reflector: Reflector,
   ) {
     super();
+    // Lazy-load JwtService để tránh circular dependency
+    setTimeout(() => {
+      this.jwtService = this.moduleRef.get(JwtService, { strict: false });
+    }, 0);
   }
 
   private extractTokenFromRequest(request: Request): string | undefined {
@@ -64,20 +73,33 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     const token = this.extractTokenFromRequest(request);
 
     if (!token) {
-      throw new UnauthorizedException('No authentication token provided');
+      this.logger.debug('No JWT token found in request');
+      return super.canActivate(context) as Promise<boolean>;
     }
 
     try {
-      // Verify the JWT
+      // Ensure JwtService is loaded - wait if necessary
+      if (!this.jwtService) {
+        this.logger.debug('JwtService not yet loaded, waiting...');
+        // Retry getting JwtService if it's not loaded yet
+        this.jwtService = this.moduleRef.get(JwtService, { strict: false });
+
+        if (!this.jwtService) {
+          this.logger.error('JwtService still undefined after retry');
+          throw new UnauthorizedException('Authentication service unavailable');
+        }
+      }
+
+      // Now we can use the JwtService
       const payload = await this.jwtService.verifyAsync(token, {
         secret: this.configService.get<string>('JWT_SECRET'),
       });
 
-      // Attach the user to the request
+      // Set user in request
       request.user = payload;
 
-      // Check session
-      if (payload.sessionId) {
+      // Validate session if needed
+      if (payload && payload.sessionId) {
         const session = await this.sessionRepository.findOne({
           where: {
             id: payload.sessionId,
@@ -95,43 +117,11 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       }
 
       return true;
-    } catch (error: any) {
-      console.log('error', error);
+    } catch (error) {
+      this.logger.error(`JWT verification failed: ${error.message}`);
       throw new UnauthorizedException('Invalid authentication token');
     }
   }
-
-  // async canActivate(context: ExecutionContext): Promise<boolean> {
-  //   const canActivate = await super.canActivate(context);
-
-  //   if (!canActivate) {
-  //     return false;
-  //   }
-
-  //   const request = context.switchToHttp().getRequest();
-
-  //   const user = request.user;
-
-  //   // Validate that the session exists and is active
-  //   if (user && user.sessionId) {
-  //     const session = await this.sessionRepository.findOne({
-  //       where: {
-  //         id: user.sessionId,
-  //         isActive: true,
-  //       },
-  //     });
-
-  //     if (!session) {
-  //       throw new UnauthorizedException('Session is invalid or expired');
-  //     }
-
-  //     // Update the last active timestamp
-  //     session.lastActiveAt = new Date();
-  //     await this.sessionRepository.save(session);
-  //   }
-
-  //   return true;
-  // }
 
   handleRequest(err, user) {
     // Nếu có lỗi hoặc không có user

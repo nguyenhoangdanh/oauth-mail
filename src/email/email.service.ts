@@ -848,6 +848,13 @@ export class EmailService implements IEmailService {
   ): Promise<string> {
     const emailId = uuidv4();
 
+    console.log(`
+      [Email] 2FA Backup Codes Email
+      To: ${email}
+      Name: ${name}
+      Codes: ${backupCodes.join(', ')}
+    `);
+
     await this.queueEmail(
       email,
       'Your Two-Factor Authentication Backup Codes',

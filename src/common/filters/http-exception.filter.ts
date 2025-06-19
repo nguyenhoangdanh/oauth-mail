@@ -38,20 +38,20 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
     // Determine the status code
     let status: number;
-    let message: any;
+    let error: any;
     let errorCode: string;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
-      message = exception.getResponse();
+      error = exception.getResponse();
 
       // Extract error code if available
-      if (typeof message === 'object' && message.code) {
-        errorCode = message.code;
+      if (typeof error === 'object' && error.code) {
+        errorCode = error.code;
       }
     } else {
       status = HttpStatus.INTERNAL_SERVER_ERROR;
-      message = {
+      error = {
         error: 'Internal Server Error',
         message: 'An unexpected error occurred',
       };
@@ -68,7 +68,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       statusCode: status,
       timestamp: new Date().toISOString(),
       path: request.url,
-      message: typeof message === 'object' ? message : { error: message },
+      message: typeof error === 'object' ? error : { error: error },
     };
 
     // Add error code if available
@@ -85,7 +85,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     if (status !== HttpStatus.OK) {
       this.logger.error(
         `${request.method} ${request.url} - Status ${status} - ${
-          typeof message === 'object' ? JSON.stringify(message) : message
+          typeof error === 'object' ? JSON.stringify(error) : error
         }`,
         this.isProduction ? null : exception.stack,
       );

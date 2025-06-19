@@ -8,7 +8,7 @@
     <style>
         /* Base styles */
         body {
-            font-family: Arial, sans-serif;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             line-height: 1.6;
             color: #333;
             margin: 0;
@@ -18,96 +18,215 @@
 
         /* Container styles */
         .container {
-            max-width: 600px;
+            max-width: 650px;
             margin: 0 auto;
-            padding: 20px;
+            padding: 30px;
             background-color: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        }
+
+        /* Header */
+        .header {
+            text-align: center;
+            margin-bottom: 25px;
+        }
+
+        .header img {
+            max-height: 50px;
+        }
+
+        /* Title */
+        .title {
+            color: #1a56db;
+            font-size: 24px;
+            font-weight: 600;
+            margin-top: 20px;
+            margin-bottom: 25px;
+            text-align: center;
+        }
+
+        /* Subtitle */
+        .subtitle {
+            font-weight: 600;
+            font-size: 18px;
+            color: #374151;
+            margin-top: 25px;
+            margin-bottom: 15px;
         }
 
         /* Codes container */
         .codes-container {
-            background-color: #f1f5f9;
-            border-radius: 5px;
-            padding: 15px;
-            margin: 20px 0;
-            font-family: monospace;
-            font-size: 16px;
+            background-color: #f3f4f6;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 25px 0;
+            text-align: center;
         }
 
         /* Individual code */
         .code {
             display: inline-block;
             background-color: #ffffff;
-            border: 1px solid #cbd5e1;
-            border-radius: 3px;
-            padding: 8px 12px;
-            margin: 5px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            padding: 10px 15px;
+            margin: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 16px;
             font-weight: bold;
             letter-spacing: 1px;
+            color: #1f2937;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
         }
 
         /* Warning box */
         .warning-box {
-            background-color: #fef2f2;
-            border-left: 4px solid #ef4444;
-            padding: 15px;
-            margin: 20px 0;
+            background-color: #fee2e2;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 25px 0;
+            border-left: 5px solid #ef4444;
+        }
+
+        .warning-title {
+            margin: 0;
+            font-weight: bold;
+            color: #b91c1c;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+        }
+
+        .warning-title svg {
+            margin-right: 8px;
+        }
+
+        .warning-list {
+            margin-top: 12px;
+            color: #7f1d1d;
+            padding-left: 20px;
+        }
+
+        .warning-list li {
+            margin-bottom: 8px;
+        }
+
+        /* Button */
+        .button-container {
+            text-align: center;
+            margin: 35px 0;
+        }
+
+        .button {
+            display: inline-block;
+            background-color: #2563eb;
+            color: #ffffff !important;
+            font-weight: 600;
+            text-decoration: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            transition: background-color 0.3s;
+        }
+
+        .button:hover {
+            background-color: #1d4ed8;
+        }
+
+        /* Footer */
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e5e7eb;
+            color: #6b7280;
+            font-size: 14px;
+        }
+
+        .signature {
+            margin-bottom: 25px;
         }
 
         /* Responsive styles */
         @media only screen and (max-width: 600px) {
             .container {
                 width: 100% !important;
+                padding: 20px;
             }
 
             .code {
                 display: block;
-                margin: 10px 0;
+                margin: 10px auto;
                 text-align: center;
+                width: 80%;
             }
         }
     </style>
 </head>
 
 <body>
-    {{> header}}
-
     <div class="container">
-        <h2 style="color: #1f2937; margin-top: 20px;">Your 2FA Backup Codes</h2>
+        <div class="header">
+            {{#if logoUrl}}
+            <img src="{{logoUrl}}" alt="{{appName}} Logo">
+            {{else}}
+            <h2>{{appName}}</h2>
+            {{/if}}
+        </div>
+
+        <h1 class="title">Your Two-Factor Authentication Backup Codes</h1>
 
         <p>Hello {{name}},</p>
 
-        <p>You have successfully enabled Two-Factor Authentication for your {{appName}} account. To ensure you always
-            have access to your account, we've generated the following backup codes for you:</p>
+        <p>You've successfully enabled Two-Factor Authentication for your <strong>{{appName}}</strong> account. This
+            adds an
+            important layer of security to protect your account.</p>
+
+        <h2 class="subtitle">Your Backup Codes</h2>
+
+        <p>Store these backup codes securely. Each code can be used <strong>once</strong> to access your account if you
+            lose
+            access to your authentication app:</p>
 
         <div class="codes-container">
-            {{#each codes}}
+            {{#each backupCodes}}
             <div class="code">{{this}}</div>
             {{/each}}
         </div>
 
         <div class="warning-box">
-            <p style="margin: 0; font-weight: bold; color: #b91c1c;">Important:</p>
-            <ul style="margin-top: 8px; color: #b91c1c;">
-                <li>Keep these codes in a safe place. They are the only way to regain access to your account if you lose
-                    your authentication device.</li>
-                <li>Each code can only be used once.</li>
-                <li>These codes are as important as your password - don't share them with anyone.</li>
+            <div class="warning-title">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                    stroke="#b91c1c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="8" x2="12" y2="12"></line>
+                    <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                </svg>
+                <span>Important Security Information</span>
+            </div>
+            <ul class="warning-list">
+                <li>Keep these codes in a secure location separate from your authentication device.</li>
+                <li>Each code can only be used once and will become invalid after use.</li>
+                <li>These codes are essentially a second password - don't share them with anyone.</li>
+                <li>Without your authentication app or these backup codes, you may lose access to your account.</li>
             </ul>
         </div>
 
-        <p>You can generate new backup codes at any time by visiting your account security settings.</p>
+        <p>If you need new backup codes, you can generate them at any time from your account security settings.</p>
 
-        <div style="text-align: center; margin: 30px 0;">
-            {{#trackButton (concat appUrl "/account/security") "Security Settings" emailId "button"}}{{/trackButton}}
+        <div class="button-container">
+            <a href="{{securitySettingsUrl}}" class="button">Manage Security Settings</a>
         </div>
 
-        <p>If you didn't enable 2FA on your account, please contact our support team immediately.</p>
+        <p>If you didn't enable 2FA on your account or believe this action was unauthorized, please contact our support
+            team
+            immediately at {{supportEmail}}.</p>
 
-        <p>Thanks,<br>The {{appName}} Team</p>
+        <div class="footer">
+            <p class="signature">Best regards,<br>The {{appName}} Team</p>
+            <p>This is an automated message. Please do not reply directly to this email.</p>
+            <p>&copy; {{currentYear}} {{appName}}. All rights reserved.</p>
+        </div>
     </div>
-
-    {{> footer recipient=to emailId=id}}
 </body>
 
 </html>

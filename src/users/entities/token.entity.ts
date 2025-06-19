@@ -40,6 +40,8 @@ export class Token {
 
   @BeforeInsert()
   generateToken() {
-    this.token = uuidv4();
+    if (!this.token) {
+      this.token = uuidv4();
+    }
   }
 }

@@ -32,9 +32,18 @@ export class TwoFactorService {
   async generateSecret(
     userId: string,
   ): Promise<{ secret: string; qrCodeUrl: string }> {
+    // Fix: Đảm bảo userId không null hoặc undefined trước khi tiếp tục
+    if (!userId) {
+      this.logger.error(
+        'Attempted to generate 2FA secret with null/undefined userId',
+      );
+      throw new Error('User ID is required to generate 2FA secret');
+    }
+
     // Find user
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) {
+      this.logger.error(`User not found with ID: ${userId}`);
       throw new NotFoundException('User not found');
     }
 
@@ -47,16 +56,21 @@ export class TwoFactorService {
     let twoFactorAuth = await this.twoFactorRepository.findOne({
       where: { userId },
     });
+
     if (twoFactorAuth) {
+      // Update existing record
       twoFactorAuth.secret = secret;
       twoFactorAuth.isEnabled = false;
     } else {
+      // Create new record - đảm bảo userId được đặt
       twoFactorAuth = this.twoFactorRepository.create({
-        userId,
+        userId: userId, // Fix: Đặt rõ ràng userId
         secret,
         isEnabled: false,
       });
     }
+
+    this.logger.debug(`Saving 2FA record for user: ${userId}`);
     await this.twoFactorRepository.save(twoFactorAuth);
 
     // Generate QR code
@@ -120,21 +134,31 @@ export class TwoFactorService {
   }
 
   async verify(userId: string, token: string): Promise<boolean> {
+    console.log(`Verifying 2FA token for user: ${userId}`);
+
     // Find 2FA record
     const twoFactorAuth = await this.twoFactorRepository.findOne({
       where: { userId },
     });
-    if (!twoFactorAuth || !twoFactorAuth.isEnabled) {
+
+    if (!twoFactorAuth) {
+      console.log(`No 2FA record found for user: ${userId}`);
+      return false; // 2FA record should exist if we're verifying
+    }
+
+    if (!twoFactorAuth.isEnabled) {
+      console.log(`2FA not enabled for user: ${userId}`);
       return true; // 2FA not enabled, consider verified
     }
 
-    // Verify token
+    // Verify token with TOTP
     const isValid = authenticator.verify({
       token,
       secret: twoFactorAuth.secret,
     });
 
     if (isValid) {
+      console.log(`2FA TOTP valid for user: ${userId}`);
       // Log successful verification
       await this.auditService.log({
         action: 'two_factor_verified',
@@ -144,11 +168,14 @@ export class TwoFactorService {
     }
 
     // Check if it's a backup code
-    if (twoFactorAuth.backupCodes) {
+    if (twoFactorAuth.backupCodes && twoFactorAuth.backupCodes.length > 0) {
+      console.log(`Checking backup codes for user: ${userId}`);
       const backupCodeIndex = twoFactorAuth.backupCodes.findIndex(
         (code) => code === token,
       );
+
       if (backupCodeIndex >= 0) {
+        console.log(`Valid backup code used for user: ${userId}`);
         // Use up the backup code
         twoFactorAuth.backupCodes.splice(backupCodeIndex, 1);
         await this.twoFactorRepository.save(twoFactorAuth);
@@ -163,6 +190,7 @@ export class TwoFactorService {
       }
     }
 
+    console.log(`Invalid 2FA verification for user: ${userId}`);
     // Log failed verification
     await this.auditService.log({
       action: 'two_factor_verification_failed',

@@ -1,5 +1,5 @@
 // src/auth/auth.module.ts
-import { forwardRef, Module } from '@nestjs/common';
+import { forwardRef, Logger, Module, OnModuleInit } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -26,6 +26,9 @@ import { PasswordPolicyService } from './password-policy.service';
 import { AccountLockoutService } from './account-lockout.service';
 import { PendingRegistration } from './dto/verify-registration.dto';
 import { UsersModule } from 'src/users/users.module';
+import { TwoFactorModule } from 'src/two-factor/two-factor.module';
+import { ModuleRef } from '@nestjs/core';
+import { JwtService } from '@nestjs/jwt';
 
 @Module({
   imports: [
@@ -52,9 +55,18 @@ import { UsersModule } from 'src/users/users.module';
     forwardRef(() => EmailModule),
     AuditModule,
     EventEmitterModule.forRoot(),
+    forwardRef(() => TwoFactorModule),
   ],
   controllers: [AuthController],
   providers: [
+    {
+      provide: 'GLOBAL_JWT_SERVICE',
+      useFactory: (moduleRef: ModuleRef) => {
+        const jwtService = moduleRef.get(JwtService, { strict: false });
+        return jwtService;
+      },
+      inject: [ModuleRef],
+    },
     AuthService,
     UsersService,
     JwtStrategy,
@@ -68,6 +80,26 @@ import { UsersModule } from 'src/users/users.module';
     PasswordPolicyService,
     AccountLockoutService,
   ],
-  exports: [AuthService, JwtModule, JwtAuthGuard, AdminGuard],
+  exports: [
+    AuthService,
+    JwtModule,
+    JwtAuthGuard,
+    AdminGuard,
+    'GLOBAL_JWT_SERVICE',
+  ],
 })
-export class AuthModule {}
+export class AuthModule implements OnModuleInit {
+  private readonly logger = new Logger(AuthModule.name);
+
+  constructor(private moduleRef: ModuleRef) {}
+
+  onModuleInit() {
+    // Kiểm tra xem JwtService đã được khởi tạo đúng cách chưa
+    try {
+      const jwtService = this.moduleRef.get(JwtService);
+      this.logger.log('JwtService initialized successfully');
+    } catch (error) {
+      this.logger.error(`Failed to initialize JwtService: ${error.message}`);
+    }
+  }
+}

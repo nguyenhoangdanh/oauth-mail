@@ -47,6 +47,16 @@ export class User {
   @Column({ nullable: true })
   lastLoginAt: Date;
 
+  // Two Factor Authentication fields
+  @Column({ default: false })
+  twoFactorEnabled: boolean;
+
+  @Column({ nullable: true })
+  twoFactorSecret: string;
+
+  @Column({ nullable: true, type: 'simple-array' })
+  twoFactorRecoveryCodes: string[];
+
   @Column({ nullable: true })
   lockedUntil: Date;
 
